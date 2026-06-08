@@ -1,5 +1,5 @@
 /*
- * Design tokens — Gatekeeper brand palette (extracted from gatekeeperhq.com live CSS).
+ * Design tokens — client brand palette.
  * Swap these values to re-theme the entire dashboard; nothing below references raw hex.
  */
 :root {
@@ -8,7 +8,7 @@
   --brand-orange-dark: #f05a19;
   --brand-orange-light: #f07f33;
 
-  /* Logo facet colors (Gatekeeper mark): green / teal-blue / orange / magenta */
+  /* Logo facet colors (brand mark): green / teal-blue / orange / magenta */
   --logo-green: #4caf50;
   --logo-teal: #1ba0c4;
   --logo-orange: #ff5f1f;

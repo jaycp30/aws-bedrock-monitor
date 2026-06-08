@@ -6,8 +6,8 @@ per-model / per-region token usage (including prompt-cache tokens), invocations,
 Explorer) — plus a Guardrailed natural-language **Ask** agent.
 
 > **Current phase:** built and deployed on a **personal AWS account** as a
-> learning exercise → personal GitHub (`jaycp30`). The UI is *branded* for client
-> "Gatekeeper", but that's just the theme — it only becomes client work if/when
+> learning exercise → personal GitHub (`jaycp30`). The UI uses a client brand
+> theme, but that's just styling — it only becomes client work if/when
 > deployed into the client's own AWS account.
 
 ## Architecture
@@ -98,7 +98,7 @@ Cognito emails a temporary password to `AdminEmail` on first deploy.
 ### Two frontends
 
 - **`frontend/`** — the experimentation playground (try any palette/design).
-- **`frontend-gatekeeper/`** — a **locked** copy holding the Gatekeeper brand
+- **`frontend-gk/`** — a **locked** copy holding the client brand
   design. Point a separate Amplify app (or branch) at this folder for the
   client-ready build. Don't experiment in it.
 
@@ -142,7 +142,7 @@ keys you set in Amplify.
 | `samconfig.toml` | `sandbox` and `client` deploy profiles (incl. `FrontendUrl`) |
 | `amplify.yml` | Amplify Hosting build spec (builds `frontend/`) |
 | `frontend/` | React + Vite + Recharts SPA (experimentation) |
-| `frontend-gatekeeper/` | Locked Gatekeeper-brand copy of the frontend |
+| `frontend-gk/` | Locked client-brand copy of the frontend |
 | `frontend/src/theme.css` | Design tokens (brand palette) |
 
 ## Credits

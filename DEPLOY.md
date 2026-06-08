@@ -221,8 +221,8 @@ aws cognito-idp admin-create-user --user-pool-id <UserPoolId> \
 
 ## Deploying the client-branded frontend
 
-Point a **separate Amplify app** (or branch) at the `frontend-gatekeeper/` folder
-(set its app root accordingly) so the locked Gatekeeper design ships independently
+Point a **separate Amplify app** (or branch) at the `frontend-gk/` folder
+(set its app root accordingly) so the locked client-brand design ships independently
 of your experiments in `frontend/`.
 
 ## Deploying to the client's 5 regions
