@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Bedrock usage & cost dashboard — BACKEND (SAM). Lambda + HTTP API (Cognito JWT
+  auth) reading model-invocation LOGS for precise per-call tokens, live AWS
+  pricing, Cost Explorer reconciliation, and a Guardrailed Bedrock "Ask" agent.
+  The frontend is hosted separately by AWS Amplify Hosting (see amplify.yml);
+  FrontendUrl wires Cognito callbacks + CORS to the Amplify app URL.
+
+Parameters:
+  Regions:
+    Type: String
+    Default: ap-northeast-1
+    Description: >
+      Comma-separated AWS regions to monitor. Sandbox = ap-northeast-1.
+      Client = us-east-1,eu-west-1,us-west-2,ca-central-1,ap-southeast-2
+  AdminEmail:
+    Type: String
+    Description: Email address to seed as the first dashboard user.
+  BedrockModelId:
+    Type: String
+    Default: jp.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: Model (inference profile) for the "Ask" agent; must exist in the stack region.
+  FrontendUrl:
+    Type: String
+    Default: http://localhost:5173
+    Description: >
+      The Amplify Hosting app URL (no trailing slash), e.g.
+      https://main.d123abc.amplifyapp.com. Used for Cognito callback/logout URLs
+      and API CORS. Set this on the second deploy, once the Amplify app exists.
+
+Globals:
+  Function:
+    Timeout: 90
+    MemorySize: 512
+    Runtime: python3.12
+
+Resources:
+  # ----------------------------------------------------------------------- #
+  # Backend: metrics API + Ask agent
+  # ----------------------------------------------------------------------- #
+  UsageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: app.handler
+      Environment:
+        Variables:
+          REGIONS: !Ref Regions
+          CORS_ORIGIN: !Ref FrontendUrl
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          GUARDRAIL_ID: !GetAtt UsageGuardrail.GuardrailId
+          GUARDRAIL_VERSION: !GetAtt UsageGuardrailVersion.Version
+      Policies:
+        - Statement:
+            - Sid: ReadInvocationLogs
+              Effect: Allow
+              Action:
+                - logs:FilterLogEvents
+              Resource: !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/bedrock/model-invocations:*"
+            - Sid: LivePricing
+              Effect: Allow
+              Action:
+                - pricing:ListPriceLists
+                - pricing:GetPriceListFileUrl
+                - pricing:GetProducts
+              Resource: "*"
+            - Sid: BedrockCatalog
+              Effect: Allow
+              Action:
+                - bedrock:ListFoundationModels
+                - bedrock:ListInferenceProfiles
+              Resource: "*"
+            - Sid: BilledCost
+              Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+              Resource: "*"
+            - Sid: AskAgentInvoke
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
+            - Sid: AskAgentGuardrail
+              Effect: Allow
+              Action:
+                - bedrock:ApplyGuardrail
+              Resource: !GetAtt UsageGuardrail.GuardrailArn
+      Events:
+        GetUsage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /usage
+            Method: GET
+        Ask:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /ask
+            Method: POST
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref FrontendUrl
+        AllowHeaders:
+          - authorization
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+              audience:
+                - !Ref UserPoolClient
+
+  # ----------------------------------------------------------------------- #
+  # Bedrock Guardrail — scopes the Ask agent to Bedrock usage/cost topics
+  # ----------------------------------------------------------------------- #
+  UsageGuardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: !Sub "${AWS::StackName}-ask-guardrail"
+      Description: Restricts the Ask agent to AWS Bedrock usage and cost questions.
+      BlockedInputMessaging: "I can only help with questions about your AWS Bedrock usage and cost."
+      BlockedOutputsMessaging: "I can only help with questions about your AWS Bedrock usage and cost."
+      TopicPolicyConfig:
+        TopicsConfig:
+          - Name: OutOfScope
+            Type: DENY
+            Definition: >
+              Any request not about this AWS account's Bedrock model usage, tokens,
+              invocations, models, regions, prompt caching, or cost.
+            Examples:
+              - "Write me a poem."
+              - "What's the capital of France?"
+              - "Help me debug my Python script."
+              - "Tell me a joke."
+      ContentPolicyConfig:
+        FiltersConfig:
+          - Type: PROMPT_ATTACK
+            InputStrength: HIGH
+            OutputStrength: NONE
+          - Type: MISCONDUCT
+            InputStrength: MEDIUM
+            OutputStrength: MEDIUM
+
+  UsageGuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !GetAtt UsageGuardrail.GuardrailId
+      Description: Versioned at deploy time.
+
+  # ----------------------------------------------------------------------- #
+  # Auth: Cognito (stays in SAM)
+  # ----------------------------------------------------------------------- #
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-users"
+      UserPoolTags:
+        Project: Bedrock-monitor
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub "${AWS::StackName}-web"
+      GenerateSecret: false
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - !Sub "${FrontendUrl}/"
+      LogoutURLs:
+        - !Sub "${FrontendUrl}/"
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Sub "bedrock-monitor-${AWS::AccountId}"
+
+  AdminUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref UserPool
+      Username: !Ref AdminEmail
+      DesiredDeliveryMediums:
+        - EMAIL
+      UserAttributes:
+        - Name: email
+          Value: !Ref AdminEmail
+        - Name: email_verified
+          Value: "true"
+
+Outputs:
+  ApiUrl:
+    Description: Metrics API base URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoHostedUiDomain:
+    Value: !Sub "https://bedrock-monitor-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com"
+  GuardrailId:
+    Value: !GetAtt UsageGuardrail.GuardrailId

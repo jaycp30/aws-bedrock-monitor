@@ -1,0 +1,31 @@
+# AWS Amplify Hosting build spec (monorepo — the React app lives in frontend/).
+# Backend stays in SAM; Amplify only builds + hosts the static frontend.
+#
+# Set these environment variables in the Amplify console (App settings →
+# Environment variables) — they come from the SAM stack outputs + the Amplify
+# app's own URL:
+#   VITE_API_URL         = <ApiUrl from SAM outputs>
+#   VITE_COGNITO_DOMAIN  = <CognitoHostedUiDomain from SAM outputs>
+#   VITE_CLIENT_ID       = <UserPoolClientId from SAM outputs>
+#   VITE_REDIRECT_URI    = https://<this Amplify app's domain>/
+#
+# Also add an SPA rewrite in the console (Rewrites and redirects):
+#   Source: /<*>   Target: /index.html   Type: 200 (Rewrite)   (for non-file paths)
+version: 1
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*

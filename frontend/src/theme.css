@@ -1,0 +1,49 @@
+/*
+ * Design tokens — Gatekeeper brand palette (extracted from gatekeeperhq.com live CSS).
+ * Swap these values to re-theme the entire dashboard; nothing below references raw hex.
+ */
+:root {
+  /* Brand primary */
+  --brand-orange: #ff5f1f;
+  --brand-orange-dark: #f05a19;
+  --brand-orange-light: #f07f33;
+
+  /* Logo facet colors (Gatekeeper mark): green / teal-blue / orange / magenta */
+  --logo-green: #4caf50;
+  --logo-teal: #1ba0c4;
+  --logo-orange: #ff5f1f;
+  --logo-magenta: #b6398f;
+
+  /* Ink / dark surfaces */
+  --ink: #19181c;
+  --navy: #061322;
+  --muted: #494a52;
+  --muted-2: #959595;
+
+  /* Neutrals */
+  --bg: #f9f9fa;
+  --surface: #ffffff;
+  --surface-2: #f3f4f6;
+  --border: #d1d6dc;
+  --border-2: #ced4db;
+
+  /* Data-viz series — lead with the four logo colors, then neutrals */
+  --series-1: #ff5f1f; /* orange */
+  --series-2: #1ba0c4; /* teal-blue */
+  --series-3: #4caf50; /* green */
+  --series-4: #b6398f; /* magenta */
+  --series-5: #061322; /* navy */
+  --series-6: #959595; /* grey */
+
+  /* Semantic */
+  --positive: #325852;
+  --warning: #f07f33;
+  --danger: #f05a19;
+
+  /* Type & shape */
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(25, 24, 28, 0.04), 0 4px 16px rgba(25, 24, 28, 0.06);
+  --shadow-sm: 0 1px 2px rgba(25, 24, 28, 0.06);
+}

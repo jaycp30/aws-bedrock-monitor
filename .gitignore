@@ -1,0 +1,47 @@
+# Python / SAM
+.aws-sam/
+__pycache__/
+*.pyc
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.production
+frontend-gk/node_modules/
+frontend-gk/dist/
+frontend-gk/.env.local
+frontend-gk/.env.production
+
+# Local
+.DS_Store
+samconfig.local.toml
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# SAM local build artifacts
+.aws-sam/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# Local-only: session handoffs and Claude workspace
+handoff_*.md
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+frontend-gk/

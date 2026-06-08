@@ -1,0 +1,23 @@
+version = 0.1
+
+# Sandbox: Tokyo only (where your test usage lives).
+# Update FrontendUrl to your Amplify Hosting app URL (no trailing slash) once the
+# Amplify app exists, then redeploy.
+[sandbox.deploy.parameters]
+stack_name = "bedrock-monitor"
+region = "ap-northeast-1"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+tags = "Project=Bedrock-monitor"
+parameter_overrides = "Regions=\"ap-northeast-1\" AdminEmail=\"jaycp.cloud@gmail.com\" FrontendUrl=\"http://localhost:5173\""
+
+# Client: the five production regions.
+[client.deploy.parameters]
+stack_name = "bedrock-monitor"
+region = "us-east-1"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+tags = "Project=Bedrock-monitor"
+parameter_overrides = "Regions=\"us-east-1,eu-west-1,us-west-2,ca-central-1,ap-southeast-2\" AdminEmail=\"CHANGE_ME@client.com\" FrontendUrl=\"http://localhost:5173\""
