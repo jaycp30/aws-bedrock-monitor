@@ -95,13 +95,6 @@ Full manual, step-by-step runbook: **[DEPLOY.md](DEPLOY.md)**. In short:
 
 Cognito emails a temporary password to `AdminEmail` on first deploy.
 
-### Two frontends
-
-- **`frontend/`** — the experimentation playground (try any palette/design).
-- **`frontend-gk/`** — a **locked** copy holding the client brand
-  design. Point a separate Amplify app (or branch) at this folder for the
-  client-ready build. Don't experiment in it.
-
 ## Local development
 
 Backend, against real logs/pricing/CE (read-only, no deploy):
@@ -141,8 +134,7 @@ keys you set in Amplify.
 | `template.yaml` | SAM backend: Lambda, HTTP API + Cognito, Bedrock Guardrail |
 | `samconfig.toml` | `sandbox` and `client` deploy profiles (incl. `FrontendUrl`) |
 | `amplify.yml` | Amplify Hosting build spec (builds `frontend/`) |
-| `frontend/` | React + Vite + Recharts SPA (experimentation) |
-| `frontend-gk/` | Locked client-brand copy of the frontend |
+| `frontend/` | React + Vite + Recharts SPA |
 | `frontend/src/theme.css` | Design tokens (brand palette) |
 
 ## Credits

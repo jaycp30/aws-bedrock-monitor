@@ -139,9 +139,15 @@ Resources:
         TopicsConfig:
           - Name: OutOfScope
             Type: DENY
+            # Deny is defined POSITIVELY (categories to block), not as "anything
+            # not about X" — negative definitions make the classifier block
+            # legitimate meta-questions like "what is the Cache R/W metric?".
+            # Topical steering is handled by the system prompt in backend/ask.py.
             Definition: >
-              Any request not about this AWS account's Bedrock model usage, tokens,
-              invocations, models, regions, prompt caching, or cost.
+              Requests unrelated to AWS, Amazon Bedrock, LLM usage, tokens,
+              invocations, prompt caching, cost, or this dashboard's metrics —
+              such as creative writing, general knowledge, coding help,
+              translations, or personal advice.
             Examples:
               - "Write me a poem."
               - "What's the capital of France?"

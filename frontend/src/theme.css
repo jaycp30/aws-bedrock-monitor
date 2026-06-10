@@ -1,49 +1,44 @@
 /*
- * Design tokens — client brand palette.
- * Swap these values to re-theme the entire dashboard; nothing below references raw hex.
+ * Design tokens — "Swiss industrial print on aged paper".
+ * Colors: Ivalice chronicle palette (aged paper, ink browns, watercolor accents).
+ * Shapes: industrial brutalist — square corners, visible rules, no soft shadows.
+ * Swap these values to re-theme the dashboard; nothing below references raw hex.
  */
 :root {
-  /* Brand primary */
-  --brand-orange: #ff5f1f;
-  --brand-orange-dark: #f05a19;
-  --brand-orange-light: #f07f33;
+  /* Aged paper substrates */
+  --paper: #f4ecd8;      /* card / surface */
+  --paper-2: #ede2c8;    /* page background */
+  --paper-3: #e2d4b2;    /* pressed / hover */
 
-  /* Logo facet colors (brand mark): green / teal-blue / orange / magenta */
-  --logo-green: #4caf50;
-  --logo-teal: #1ba0c4;
-  --logo-orange: #ff5f1f;
-  --logo-magenta: #b6398f;
+  /* Ink browns — never pure black */
+  --ink: #3a2a1a;        /* primary text */
+  --ink-2: #5c4630;      /* secondary text, structural borders */
+  --ink-3: #8c7456;      /* muted text, labels */
+  --ink-line: rgba(74, 54, 34, 0.35);   /* compartment rules */
+  --ink-faint: rgba(74, 54, 34, 0.15);  /* hairlines */
 
-  /* Ink / dark surfaces */
-  --ink: #19181c;
-  --navy: #061322;
-  --muted: #494a52;
-  --muted-2: #959595;
+  /* Watercolor accents (mid / deep) */
+  --w-sage: #8fa882;  --w-sage-d: #5f7a54;
+  --w-blue: #7e96a8;  --w-blue-d: #4e6a80;
+  --w-ochre: #c8a35c; --w-ochre-d: #9a7430;
+  --w-rust: #b07050;  --w-rust-d: #8a4a2e;
+  --w-plum: #9a7e96;
 
-  /* Neutrals */
-  --bg: #f9f9fa;
-  --surface: #ffffff;
-  --surface-2: #f3f4f6;
-  --border: #d1d6dc;
-  --border-2: #ced4db;
+  /* Single accent — rust stands in for brutalist hazard-red */
+  --accent: var(--w-rust);
+  --accent-d: var(--w-rust-d);
 
-  /* Data-viz series — lead with the four logo colors, then neutrals */
-  --series-1: #ff5f1f; /* orange */
-  --series-2: #1ba0c4; /* teal-blue */
-  --series-3: #4caf50; /* green */
-  --series-4: #b6398f; /* magenta */
-  --series-5: #061322; /* navy */
-  --series-6: #959595; /* grey */
+  /* Chart series */
+  --series-input: var(--w-sage-d);
+  --series-output: var(--w-blue-d);
 
   /* Semantic */
-  --positive: #325852;
-  --warning: #f07f33;
-  --danger: #f05a19;
+  --positive: var(--w-sage-d);
+  --warning: var(--w-ochre-d);
+  --danger: var(--w-rust-d);
 
-  /* Type & shape */
-  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 2px rgba(25, 24, 28, 0.04), 0 4px 16px rgba(25, 24, 28, 0.06);
-  --shadow-sm: 0 1px 2px rgba(25, 24, 28, 0.06);
+  /* Type — display for big numerals/titles, mono for labels and data */
+  --font-display: "Archivo Black", "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }

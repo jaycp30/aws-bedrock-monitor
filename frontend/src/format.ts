@@ -31,13 +31,3 @@ export function shortModel(id: string): string {
   // Strip cross-region prefix (jp. / apac. / us. / eu. / global.) and provider.
   return id.replace(/^(global|jp|apac|ap|us|eu|ca)\./, "").replace(/^anthropic\.|^amazon\./, "");
 }
-
-// The data-viz series colors, read from the theme tokens.
-export const SERIES_COLORS = [
-  "var(--series-1)",
-  "var(--series-2)",
-  "var(--series-3)",
-  "var(--series-4)",
-  "var(--series-5)",
-  "var(--series-6)",
-];
