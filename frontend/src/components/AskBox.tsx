@@ -1,5 +1,12 @@
 import { useState } from "react";
+import Lottie from "lottie-react";
 import { askQuestion } from "../api";
+import thinkingAnimation from "../assets/ask-thinking.json";
+
+// Skip the animation for users who prefer reduced motion (they keep the text).
+const REDUCED_MOTION =
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const SUGGESTIONS = [
   "Summarize my Bedrock usage this week",
@@ -46,7 +53,7 @@ export function AskBox() {
           aria-label="Ask about your Bedrock usage"
         />
         <button className="btn btn--primary ask__btn" type="submit" disabled={loading}>
-          {loading ? "Thinking…" : "Ask"}
+          Ask
         </button>
       </form>
 
@@ -58,6 +65,14 @@ export function AskBox() {
         ))}
       </div>
 
+      {loading && (
+        <div className="ask__thinking" role="status" aria-label="Working on your question">
+          {!REDUCED_MOTION && (
+            <Lottie animationData={thinkingAnimation} loop className="ask__thinking-anim" />
+          )}
+          <span>Thinking…</span>
+        </div>
+      )}
       {error && <div className="banner banner--err">{error}</div>}
       {answer && <div className="ask__answer">{answer}</div>}
       <p className="ask__note">

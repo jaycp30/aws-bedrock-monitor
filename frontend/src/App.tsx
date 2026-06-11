@@ -5,6 +5,7 @@ import { Kpi } from "./components/Kpi";
 import { UsageChart } from "./components/UsageChart";
 import { ModelTable, RegionTable } from "./components/Tables";
 import { AskBox } from "./components/AskBox";
+import { ProfileMenu } from "./components/ProfileMenu";
 import { fmtInt, fmtTokens, fmtUsd } from "./format";
 
 const RANGES = [
@@ -80,6 +81,7 @@ export default function App() {
               </button>
             ))}
           </div>
+          {!DEMO_MODE && <ProfileMenu />}
           {!DEMO_MODE && (
             <button className="btn btn--ghost" onClick={() => logout()}>Sign out</button>
           )}

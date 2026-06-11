@@ -2,8 +2,13 @@
 import { CONFIG } from "./config";
 
 const TOKEN_KEY = "bm_id_token";
+const ACCESS_TOKEN_KEY = "bm_access_token";
 const EXP_KEY = "bm_id_exp";
 const VERIFIER_KEY = "bm_pkce_verifier";
+
+// aws.cognito.signin.user.admin lets the access token call Cognito self-service
+// APIs (GetUser, ChangePassword) for the signed-in user only.
+const SCOPES = "openid email profile aws.cognito.signin.user.admin";
 
 function base64url(bytes: Uint8Array): string {
   let str = "";
@@ -30,8 +35,28 @@ export function getToken(): string | null {
   return token;
 }
 
+export function getAccessToken(): string | null {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const exp = Number(localStorage.getItem(EXP_KEY) || 0);
+  if (!token || Date.now() / 1000 > exp - 30) return null;
+  return token;
+}
+
+// Signed-in user's email, read from the ID token claims (no API call needed).
+export function getEmail(): string | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(payload)).email ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(EXP_KEY);
   const url =
     `${CONFIG.cognitoDomain}/logout?client_id=${CONFIG.clientId}` +
@@ -47,7 +72,7 @@ export async function login() {
     `${CONFIG.cognitoDomain}/oauth2/authorize?response_type=code` +
     `&client_id=${CONFIG.clientId}` +
     `&redirect_uri=${encodeURIComponent(CONFIG.redirectUri)}` +
-    `&scope=${encodeURIComponent("openid email profile")}` +
+    `&scope=${encodeURIComponent(SCOPES)}` +
     `&code_challenge_method=S256&code_challenge=${challenge}`;
   window.location.href = url;
 }
@@ -74,6 +99,7 @@ export async function handleRedirect(): Promise<boolean> {
   if (!resp.ok) return false;
   const data = await resp.json();
   localStorage.setItem(TOKEN_KEY, data.id_token);
+  localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
   localStorage.setItem(EXP_KEY, String(Math.floor(Date.now() / 1000) + data.expires_in));
   localStorage.removeItem(VERIFIER_KEY);
   // Clean ?code= from the URL.

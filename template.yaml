@@ -206,6 +206,9 @@ Resources:
         - openid
         - email
         - profile
+        # Lets the access token call Cognito self-service APIs (GetUser,
+        # ChangePassword) for the signed-in user only — used by the profile menu.
+        - aws.cognito.signin.user.admin
       AllowedOAuthFlowsUserPoolClient: true
       SupportedIdentityProviders:
         - COGNITO
