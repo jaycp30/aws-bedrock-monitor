@@ -143,11 +143,11 @@ Resources:
             # not about X" — negative definitions make the classifier block
             # legitimate meta-questions like "what is the Cache R/W metric?".
             # Topical steering is handled by the system prompt in backend/ask.py.
-            Definition: >
-              Requests unrelated to AWS, Amazon Bedrock, LLM usage, tokens,
-              invocations, prompt caching, cost, or this dashboard's metrics —
-              such as creative writing, general knowledge, coding help,
-              translations, or personal advice.
+            # Keep under 200 chars — Bedrock's per-topic definition limit.
+            Definition: >-
+              Requests unrelated to AWS, Bedrock, LLM usage, tokens, caching,
+              cost, or this dashboard, such as creative writing, general
+              knowledge, coding help, or personal advice.
             Examples:
               - "Write me a poem."
               - "What's the capital of France?"
@@ -166,7 +166,10 @@ Resources:
     Type: AWS::Bedrock::GuardrailVersion
     Properties:
       GuardrailIdentifier: !GetAtt UsageGuardrail.GuardrailId
-      Description: Versioned at deploy time.
+      # NOTE: GuardrailVersion only creates a NEW version when this resource is
+      # REPLACED. Description is an immutable property, so bump it whenever the
+      # Guardrail rules above change — otherwise the Lambda keeps the old version.
+      Description: v2 — positively-defined deny topic (2026-06-11).
 
   # ----------------------------------------------------------------------- #
   # Auth: Cognito (stays in SAM)
