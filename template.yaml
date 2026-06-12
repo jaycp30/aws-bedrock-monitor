@@ -146,8 +146,9 @@ Resources:
             # Keep under 200 chars — Bedrock's per-topic definition limit.
             Definition: >-
               Requests unrelated to AWS, Bedrock, LLM usage, tokens, caching,
-              cost, or this dashboard, such as creative writing, general
-              knowledge, coding help, or personal advice.
+              cost, usage and spend forecasts, or this dashboard, such as
+              creative writing, general knowledge, coding help, or personal
+              advice.
             Examples:
               - "Write me a poem."
               - "What's the capital of France?"
@@ -169,7 +170,7 @@ Resources:
       # NOTE: GuardrailVersion only creates a NEW version when this resource is
       # REPLACED. Description is an immutable property, so bump it whenever the
       # Guardrail rules above change — otherwise the Lambda keeps the old version.
-      Description: v2 — positively-defined deny topic (2026-06-11).
+      Description: v3 — usage/spend forecasts added to in-scope list (2026-06-11).
 
   # ----------------------------------------------------------------------- #
   # Auth: Cognito (stays in SAM)
