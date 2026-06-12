@@ -6,6 +6,7 @@ import { UsageChart } from "./components/UsageChart";
 import { ModelTable, RegionTable } from "./components/Tables";
 import { AskBox } from "./components/AskBox";
 import { ProfileMenu } from "./components/ProfileMenu";
+import { LoadingState } from "./components/LoadingState";
 import { fmtInt, fmtTokens, fmtUsd } from "./format";
 
 const RANGES = [
@@ -43,7 +44,13 @@ export default function App() {
       .finally(() => setLoading(false));
   }, [authed, range]);
 
-  if (authed === null) return <div className="center">Loading…</div>;
+  if (authed === null) {
+    return (
+      <div className="center">
+        <LoadingState />
+      </div>
+    );
+  }
 
   if (!authed) {
     return (
@@ -105,8 +112,10 @@ export default function App() {
           <h2>Token usage over time</h2>
           {data && data.series.length > 0 ? (
             <UsageChart series={data.series} periodSeconds={data.range.period_seconds} />
+          ) : loading ? (
+            <LoadingState label="Loading usage" />
           ) : (
-            <div className="empty">{loading ? "Loading…" : "No usage in this range."}</div>
+            <div className="empty">No usage in this range.</div>
           )}
         </section>
 

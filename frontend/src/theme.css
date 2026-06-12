@@ -1,14 +1,15 @@
 /*
- * Design tokens — "Swiss industrial print on aged paper".
+ * Design tokens — "Illuminated glass on aged paper".
  * Colors: Ivalice chronicle palette (aged paper, ink browns, watercolor accents).
- * Shapes: industrial brutalist — square corners, visible rules, no soft shadows.
- * Swap these values to re-theme the dashboard; nothing below references raw hex.
+ * Structure: industrial brutalist typography and rules.
+ * Surfaces: frosted translucent paper panels that float above the page
+ * (backdrop blur + light edge + layered warm shadows — glass, but warm).
  */
 :root {
   /* Aged paper substrates */
-  --paper: #f4ecd8;      /* card / surface */
+  --paper: #f4ecd8;      /* opaque surface fallback */
   --paper-2: #ede2c8;    /* page background */
-  --paper-3: #e2d4b2;    /* pressed / hover */
+  --paper-3: #e2d4b2;    /* pressed / hover tint */
 
   /* Ink browns — never pure black */
   --ink: #3a2a1a;        /* primary text */
@@ -36,6 +37,21 @@
   --positive: var(--w-sage-d);
   --warning: var(--w-ochre-d);
   --danger: var(--w-rust-d);
+
+  /* Glass surfaces — translucent paper over the blooms, blurred */
+  --glass: rgba(248, 241, 222, 0.55);
+  --glass-strong: rgba(248, 241, 222, 0.78);
+  --glass-edge: rgba(255, 252, 240, 0.85);  /* top light edge */
+  --glass-blur: 16px;
+
+  /* Floating elevation — warm ink shadows, never cool gray */
+  --float: 0 1px 2px rgba(58, 42, 26, 0.06), 0 10px 28px rgba(58, 42, 26, 0.14);
+  --float-high: 0 2px 4px rgba(58, 42, 26, 0.08), 0 18px 44px rgba(58, 42, 26, 0.2);
+  --float-low: 0 1px 2px rgba(58, 42, 26, 0.08), 0 4px 12px rgba(58, 42, 26, 0.12);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --lift: 250ms;
 
   /* Type — display for big numerals/titles, mono for labels and data */
   --font-display: "Archivo Black", "Inter", system-ui, sans-serif;
