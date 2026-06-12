@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Lottie from "lottie-react";
 import { askChat, type ChatMessage } from "../api";
 import thinkingAnimation from "../assets/ask-thinking.json";
@@ -23,6 +23,14 @@ export function AskBox() {
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  // Keep the newest message in view inside the thread's own scroll viewport
+  // (the page itself never grows or jumps).
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [thread, loading]);
 
   async function submit(question: string) {
     const text = question.trim();
@@ -45,6 +53,34 @@ export function AskBox() {
   return (
     <section className="card ask">
       <h2>Ask about your usage</h2>
+
+      {thread.length > 0 && (
+        <div className="ask__thread" ref={threadRef} aria-live="polite">
+          {thread.map((m, i) => (
+            <div key={i} className={`ask__msg ask__msg--${m.role}`}>
+              {m.text}
+            </div>
+          ))}
+          {loading && (
+            <div className="ask__thinking" role="status" aria-label="Working on your question">
+              {!REDUCED_MOTION && (
+                <Lottie animationData={thinkingAnimation} loop className="ask__thinking-anim" />
+              )}
+              <span>Thinking…</span>
+            </div>
+          )}
+        </div>
+      )}
+      {thread.length === 0 && loading && (
+        <div className="ask__thinking" role="status" aria-label="Working on your question">
+          {!REDUCED_MOTION && (
+            <Lottie animationData={thinkingAnimation} loop className="ask__thinking-anim" />
+          )}
+          <span>Thinking…</span>
+        </div>
+      )}
+      {error && <div className="banner banner--err">{error}</div>}
+
       <form
         className="ask__form"
         onSubmit={(e) => {
@@ -77,26 +113,6 @@ export function AskBox() {
           ))}
         </div>
       )}
-
-      {thread.length > 0 && (
-        <div className="ask__thread" aria-live="polite">
-          {thread.map((m, i) => (
-            <div key={i} className={`ask__msg ask__msg--${m.role}`}>
-              {m.text}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {loading && (
-        <div className="ask__thinking" role="status" aria-label="Working on your question">
-          {!REDUCED_MOTION && (
-            <Lottie animationData={thinkingAnimation} loop className="ask__thinking-anim" />
-          )}
-          <span>Thinking…</span>
-        </div>
-      )}
-      {error && <div className="banner banner--err">{error}</div>}
 
       {thread.length > 0 && !loading && (
         <button className="ask__clear" onClick={() => { setThread([]); setError(null); }}>

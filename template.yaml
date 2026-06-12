@@ -136,24 +136,50 @@ Resources:
       BlockedInputMessaging: "I can only help with questions about your AWS Bedrock usage and cost."
       BlockedOutputsMessaging: "I can only help with questions about your AWS Bedrock usage and cost."
       TopicPolicyConfig:
+        # Several NARROW deny topics instead of one catch-all: narrow topics
+        # classify far more accurately, and on-topic usage questions stop
+        # competing with an overloaded definition. Each definition must stay
+        # under 200 chars (classic-tier limit). Topical steering stays in the
+        # system prompt in backend/ask.py.
         TopicsConfig:
-          - Name: OutOfScope
+          - Name: CreativeWriting
             Type: DENY
-            # Deny is defined POSITIVELY (categories to block), not as "anything
-            # not about X" — negative definitions make the classifier block
-            # legitimate meta-questions like "what is the Cache R/W metric?".
-            # Topical steering is handled by the system prompt in backend/ask.py.
-            # Keep under 200 chars — Bedrock's per-topic definition limit.
             Definition: >-
-              Requests unrelated to AWS, Bedrock, LLM usage, tokens, caching,
-              cost, usage and spend forecasts, or this dashboard, such as
-              creative writing, general knowledge, coding help, or personal
-              advice.
+              Requests for creative or artistic content such as poems, stories,
+              jokes, songs, lyrics, essays, fiction, or roleplay.
             Examples:
               - "Write me a poem."
-              - "What's the capital of France?"
-              - "Help me debug my Python script."
               - "Tell me a joke."
+              - "Write a short story about a dragon."
+          - Name: GeneralKnowledge
+            Type: DENY
+            Definition: >-
+              Questions about world knowledge, trivia, history, geography,
+              science, sports, or news that do not concern this AWS account's
+              Bedrock usage, cost, or this dashboard.
+            Examples:
+              - "What's the capital of France?"
+              - "Who won the World Cup?"
+              - "How far away is the Moon?"
+          - Name: CodingHelp
+            Type: DENY
+            Definition: >-
+              Requests to write, debug, refactor, or review code or software
+              that are not about interpreting this dashboard's Bedrock usage
+              or cost data.
+            Examples:
+              - "Help me debug my Python script."
+              - "Write a React component for me."
+              - "Why does my SQL query fail?"
+          - Name: PersonalAdvice
+            Type: DENY
+            Definition: >-
+              Requests for personal recommendations or advice on health, legal,
+              relationships, career, shopping, travel, or daily life.
+            Examples:
+              - "What should I eat for dinner?"
+              - "Should I change jobs?"
+              - "Plan my trip to Tokyo."
       ContentPolicyConfig:
         FiltersConfig:
           - Type: PROMPT_ATTACK
@@ -170,7 +196,7 @@ Resources:
       # NOTE: GuardrailVersion only creates a NEW version when this resource is
       # REPLACED. Description is an immutable property, so bump it whenever the
       # Guardrail rules above change — otherwise the Lambda keeps the old version.
-      Description: v3 — usage/spend forecasts added to in-scope list (2026-06-11).
+      Description: v4 — split into four narrow deny topics (2026-06-12).
 
   # ----------------------------------------------------------------------- #
   # Auth: Cognito (stays in SAM)

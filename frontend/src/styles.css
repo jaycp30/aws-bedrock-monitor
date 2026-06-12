@@ -325,8 +325,20 @@ body::before {
   transform: translateY(-2px);
   box-shadow: var(--float);
 }
-/* Conversation thread: user turns are rust-edged, agent turns sage-edged */
-.ask__thread { margin-top: 16px; display: grid; gap: 10px; }
+/* Conversation thread: user turns are rust-edged, agent turns sage-edged.
+   Fixed-height viewport with its own scrollbar — the page never grows, and
+   the component auto-scrolls it to the newest message. */
+.ask__thread {
+  margin-bottom: 14px;
+  display: grid;
+  gap: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-line) transparent;
+}
 .ask__msg {
   padding: 12px 16px;
   font-size: 14px;
