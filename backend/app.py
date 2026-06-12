@@ -238,6 +238,50 @@ def _resp(code, body):
     return {"statusCode": code, "headers": _CORS, "body": json.dumps(body)}
 
 
+# Chat request limits — the browser carries the conversation; never trust it.
+MAX_CHAT_TURNS = 20
+MAX_TURN_CHARS = 4000
+
+
+def _validate_chat(body):
+    """Return a clean [{role, text}] history, or an error string.
+
+    Accepts {"messages": [{role, text}, ...]} (multi-turn) or the legacy
+    {"question": "..."} shape. The history must alternate user/assistant and
+    end with a user message.
+    """
+    if isinstance(body.get("messages"), list):
+        raw = body["messages"]
+    elif (body.get("question") or "").strip():
+        raw = [{"role": "user", "text": body["question"]}]
+    else:
+        return "messages (or question) is required"
+
+    if not raw:
+        return "messages must not be empty"
+    if len(raw) > MAX_CHAT_TURNS:
+        raw = raw[-MAX_CHAT_TURNS:]
+
+    history = []
+    for turn in raw:
+        if not isinstance(turn, dict):
+            return "each message must be an object"
+        role = turn.get("role")
+        text = (turn.get("text") or "").strip()
+        if role not in ("user", "assistant"):
+            return "message role must be user or assistant"
+        if not text:
+            return "message text must not be empty"
+        history.append({"role": role, "text": text[:MAX_TURN_CHARS]})
+
+    if history[-1]["role"] != "user":
+        return "the last message must be from the user"
+    for prev, cur in zip(history, history[1:]):
+        if prev["role"] == cur["role"]:
+            return "messages must alternate between user and assistant"
+    return history
+
+
 def handler(event, context):
     event = event or {}
     ctx = event.get("requestContext", {}).get("http", {})
@@ -247,11 +291,11 @@ def handler(event, context):
     if path.endswith("/ask") and method == "POST":
         try:
             body = json.loads(event.get("body") or "{}")
-            question = (body.get("question") or "").strip()
-            if not question:
-                return _resp(400, {"error": "question is required"})
+            history = _validate_chat(body)
+            if isinstance(history, str):  # validation error message
+                return _resp(400, {"error": history})
             import ask  # lazy import avoids loading bedrock-runtime for /usage
-            return _resp(200, {"answer": ask.ask(question, region=CONTROL_REGION)})
+            return _resp(200, {"answer": ask.ask_chat(history, region=CONTROL_REGION)})
         except Exception as exc:  # noqa: BLE001
             return _resp(500, {"error": str(exc)})
 

@@ -32,7 +32,9 @@ SYSTEM_PROMPT = (
     "read/write tokens, invocations, and estimated vs billed cost. "
     "Always use the get_usage tool to fetch real figures — never invent numbers. "
     "If a question is unrelated to Bedrock usage or cost, politely decline and steer "
-    "the user back. Be concise and cite actual figures with units and currency."
+    "the user back. Be concise and cite actual figures with units and currency. "
+    "Only the most recent turns of the conversation are provided; if the user refers "
+    "to something no longer visible, ask them to restate it."
 )
 
 TOOLS = [
@@ -87,13 +89,28 @@ def _converse_kwargs(messages):
     return kwargs
 
 
+# The browser carries the conversation (the Lambda stays stateless); we only
+# accept the most recent turns to bound token cost per request.
+MAX_HISTORY_TURNS = 12
+
+
 def ask(question: str, region: str | None = None) -> str:
+    """Single-question entrypoint (CLI / legacy clients)."""
+    return ask_chat([{"role": "user", "text": question}], region=region)
+
+
+def ask_chat(history: list[dict], region: str | None = None) -> str:
+    """Multi-turn entrypoint: history is [{role: user|assistant, text: str}, ...],
+    oldest first, ending with the user's latest message."""
     bedrock = boto3.client(
         "bedrock-runtime",
         region_name=region or os.environ.get("AWS_REGION"),
         config=_BOTO_CFG,
     )
-    messages = [{"role": "user", "content": [{"text": question}]}]
+    messages = [
+        {"role": turn["role"], "content": [{"text": turn["text"]}]}
+        for turn in history[-MAX_HISTORY_TURNS:]
+    ]
 
     for _ in range(MAX_TURNS):
         resp = bedrock.converse(**_converse_kwargs(messages))

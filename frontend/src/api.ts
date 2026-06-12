@@ -78,7 +78,14 @@ export async function fetchUsage(range: string): Promise<UsagePayload> {
   return resp.json();
 }
 
-export async function askQuestion(question: string): Promise<string> {
+export interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+// Multi-turn ask: the browser carries the conversation and sends the recent
+// turns with every request (the backend caps how many it uses).
+export async function askChat(messages: ChatMessage[]): Promise<string> {
   if (DEMO_MODE) {
     return "Demo mode — the Ask agent runs against the live backend once deployed. It answers questions about your Bedrock usage and cost (and politely declines anything else, enforced by a Bedrock Guardrail).";
   }
@@ -87,7 +94,7 @@ export async function askQuestion(question: string): Promise<string> {
   const resp = await fetch(`${CONFIG.apiUrl}/ask`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ messages }),
   });
   if (resp.status === 401 || resp.status === 403) throw new AuthError("session expired");
   if (!resp.ok) throw new Error(`API error ${resp.status}`);
