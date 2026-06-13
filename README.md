@@ -15,6 +15,11 @@ Explorer) — plus a Guardrailed natural-language **Ask** agent.
 The **backend** is AWS SAM; the **frontend** is hosted separately by **AWS
 Amplify Hosting** (git-push CI/CD). Cognito auth lives in the SAM backend.
 
+![Architecture diagram](docs/architecture.svg)
+
+<details>
+<summary>Text version of the diagram</summary>
+
 ```
 Browser ──► AWS Amplify Hosting              [React SPA, deploys on git push]
    │  (Cognito Hosted UI login → JWT)
@@ -29,6 +34,11 @@ API Gateway (HTTP API, Cognito JWT authorizer) ──► Lambda (Python)   [SAM]
    └─ POST /ask  → Bedrock Converse (tool-use agent) + Bedrock Guardrail
          └─► calls /usage internally as a tool → grounded answers
 ```
+
+</details>
+
+> Diagram source: [`docs/architecture.drawio`](docs/architecture.drawio) — edit in
+> [draw.io](https://app.diagrams.net), then re-export to `docs/architecture.svg`.
 
 The SAM stack provisions Lambda, the HTTP API, **Cognito** (user pool + hosted
 UI), and the **Bedrock Guardrail**. Amplify Hosting builds and serves
