@@ -64,6 +64,11 @@ answers are grounded in real numbers. Three layers keep it on-task:
 3. **Bedrock Guardrail** (`AWS::Bedrock::Guardrail` in `template.yaml`) — enforces
    the boundary, blocking off-topic prompts and prompt-injection.
 
+Ask is **multi-turn**: the browser keeps the conversation and sends the recent
+turns with each question, so follow-ups ("yes, check 7 days too") work. The
+Lambda stays stateless. See [Operations](#operations) for tuning the guardrail
+and switching models.
+
 ## Prerequisites
 
 AWS CLI (configured creds), SAM CLI, Node 18+, Python 3.12, Docker (for `sam
@@ -114,12 +119,117 @@ cd frontend && npm install && npm run dev
 Against a deployed backend: create `frontend/.env.local` with the same `VITE_*`
 keys you set in Amplify.
 
+## Operations
+
+Day-to-day tasks once the stack is live. All AWS commands target Tokyo
+(`--region ap-northeast-1`) — pass it explicitly; the CLI default is elsewhere.
+
+### Manage Cognito users
+
+Admin-only pool (self-signup is disabled). Replace `<UserPoolId>` with the
+`UserPoolId` stack output.
+
+```bash
+# Create a user (Cognito emails a temporary password)
+aws cognito-idp admin-create-user \
+  --user-pool-id <UserPoolId> --region ap-northeast-1 \
+  --username you@example.com \
+  --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true
+
+# Lost the temp-password email? Resend it
+aws cognito-idp admin-create-user \
+  --user-pool-id <UserPoolId> --region ap-northeast-1 \
+  --username you@example.com --message-action RESEND
+
+# Set a permanent password directly (also clears FORCE_CHANGE_PASSWORD)
+aws cognito-idp admin-set-user-password \
+  --user-pool-id <UserPoolId> --region ap-northeast-1 \
+  --username you@example.com --password 'Your-New-Pass-12+' --permanent
+```
+
+Temp passwords expire in 7 days. The pool policy requires 12+ characters with
+upper, lower, number, and symbol. `admin-set-user-password` puts the password in
+your shell history — prefix the command with a space, or use a throwaway value
+and change it from the app's Profile menu afterward.
+
+### Change the Bedrock model the Ask agent uses
+
+One lever, no code edits: the **`BedrockModelId`** CloudFormation parameter
+(`template.yaml`) flows to the Lambda's `BEDROCK_MODEL_ID` env var, which
+`backend/ask.py` reads.
+
+```bash
+# Discover valid inference-profile IDs
+aws bedrock list-inference-profiles --region ap-northeast-1 \
+  --query "inferenceProfileSummaries[].inferenceProfileId"
+```
+
+Set it in `samconfig.toml` (`parameter_overrides`) and redeploy — a
+parameter-only change doesn't need `sam build`:
+
+```bash
+sam deploy --config-env sandbox
+```
+
+Prefix meaning: **`jp.`** routes within Japan, **`apac.`** within the APAC
+geography, **`global.`** worldwide. For a client deployment that's a
+data-residency choice — prefer a region-scoped profile if data must stay in a
+geography. The Lambda IAM already allows any region's models/profiles, so
+switching needs no template change. Test a model without deploying:
+
+```bash
+cd backend && BEDROCK_MODEL_ID=<id> python ask.py "forecast my usage" ap-northeast-1
+```
+
+### Tune the Ask guardrail
+
+The guardrail (`UsageGuardrail` in `template.yaml`) scopes Ask to
+usage/cost/dashboard topics via several **narrow deny topics**
+(creative writing, general knowledge, coding help, personal advice). When a
+legitimate question gets wrongly blocked, the loop is:
+
+```bash
+# 1. Confirm which policy fired (read-only, ~fraction of a cent)
+aws bedrock-runtime apply-guardrail \
+  --guardrail-identifier <GuardrailId> --guardrail-version <N> \
+  --source INPUT --region ap-northeast-1 \
+  --content '[{"text":{"text":"the blocked question"}}]'
+
+# 2. Widen the relevant topic in template.yaml, then bump the
+#    UsageGuardrailVersion "Description" (forces a new version), then:
+sam build && sam deploy --config-env sandbox
+```
+
+Two gotchas: (a) each topic **definition is capped at ~200 characters** on the
+classic tier — if you need more, add another narrow topic, or move to the
+standard tier (`TierConfig: STANDARD`), which allows longer definitions but
+**requires cross-region inference** (a data-residency tradeoff). (b) The
+`UsageGuardrailVersion` resource only mints a new version when **replaced**, so
+its `Description` must change on every rules edit — otherwise the Lambda keeps
+enforcing the old version.
+
+### Skip an Amplify rebuild
+
+Amplify rebuilds the frontend on every push to `main`. For backend-only or
+docs-only commits, append **`[skip-cd]`** to the commit message to skip the
+build:
+
+```bash
+git commit -m "fix: shorten guardrail topic definition [skip-cd]"
+```
+
+Caveat: Amplify inspects only the **most recent** commit of a push — if the last
+commit has `[skip-cd]`, the entire push is skipped, including any frontend
+changes in earlier commits. Only use it when the whole push is
+frontend-irrelevant.
+
 ## Cost notes
 
 - CloudWatch `filter_log_events`: standard API calls, no per-GB scan charge.
 - Cost Explorer: **$0.01 per request** → cached.
 - Price List API: free.
-- Bedrock `/ask`: each question costs Bedrock tokens (Haiku by default → tiny).
+- Bedrock `/ask`: each question costs Bedrock tokens (model set by
+  `BedrockModelId` — see [Operations](#operations); tiny at personal scale).
 - Lambda + API Gateway + Cognito + Amplify Hosting at personal scale: a few
   cents/month.
 
