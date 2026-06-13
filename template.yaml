@@ -50,6 +50,7 @@ Resources:
           CORS_ORIGIN: !Ref FrontendUrl
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           ASK_MAX_TOKENS: "1600"
+          USAGE_CACHE_TTL_SECONDS: "60"
           GUARDRAIL_ID: !GetAtt UsageGuardrail.GuardrailId
           GUARDRAIL_VERSION: !GetAtt UsageGuardrailVersion.Version
       Policies:

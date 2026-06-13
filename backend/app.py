@@ -43,10 +43,12 @@ CE_CACHE_TTL_SECONDS = int(os.environ.get("CE_CACHE_TTL_SECONDS", str(6 * 3600))
 CE_CACHE_DIR = os.environ.get("CE_CACHE_DIR", "/tmp")
 MAX_RANGE_DAYS = int(os.environ.get("MAX_RANGE_DAYS", "90"))
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(64 * 1024)))
+USAGE_CACHE_TTL_SECONDS = int(os.environ.get("USAGE_CACHE_TTL_SECONDS", "60"))
 
 _BOTO_CFG = Config(retries={"max_attempts": 3, "mode": "standard"})
 
 _pricing_ready = False
+_usage_cache = {}
 
 
 def _ensure_pricing():
@@ -57,6 +59,57 @@ def _ensure_pricing():
     bedrock = boto3.client("bedrock", region_name=CONTROL_REGION, config=_BOTO_CFG)
     pricing.init_pricing(PRICING_REGION, bedrock_client=bedrock)
     _pricing_ready = True
+
+
+def _log_json(event: str, **fields):
+    """Emit compact structured logs for CloudWatch without leaking payload data."""
+    print(json.dumps({"event": event, **fields}, default=str))
+
+
+def _usage_cache_key(params: dict) -> str:
+    """Stable cache key for the sanitized query params used by /usage."""
+    return json.dumps(params, sort_keys=True, default=str, separators=(",", ":"))
+
+
+def _prune_usage_cache(now: float) -> None:
+    expired = [
+        key for key, entry in _usage_cache.items()
+        if now - entry["created_at"] >= USAGE_CACHE_TTL_SECONDS
+    ]
+    for key in expired:
+        _usage_cache.pop(key, None)
+
+
+def get_usage_payload(params: dict) -> dict:
+    """Return a short-lived cached /usage payload for warm Lambda containers."""
+    if USAGE_CACHE_TTL_SECONDS <= 0:
+        return build_payload(params)
+
+    now = time.time()
+    key = _usage_cache_key(params)
+    entry = _usage_cache.get(key)
+    if entry and now - entry["created_at"] < USAGE_CACHE_TTL_SECONDS:
+        payload = entry["payload"]
+        _log_json(
+            "usage_cache",
+            hit=True,
+            age_ms=round((now - entry["created_at"]) * 1000, 2),
+            range=payload.get("range", {}).get("label"),
+            regions=payload.get("regions", []),
+        )
+        return payload
+
+    payload = build_payload(params)
+    _prune_usage_cache(now)
+    _usage_cache[key] = {"created_at": now, "payload": payload}
+    _log_json(
+        "usage_cache",
+        hit=False,
+        ttl_seconds=USAGE_CACHE_TTL_SECONDS,
+        range=payload.get("range", {}).get("label"),
+        regions=payload.get("regions", []),
+    )
+    return payload
 
 
 # --------------------------------------------------------------------------- #
@@ -128,10 +181,14 @@ def _billed_cost_by_region(start, end) -> dict:
 # Aggregation
 # --------------------------------------------------------------------------- #
 def build_payload(params: dict) -> dict:
-    _ensure_pricing()
+    timings = {}
     regions = params.get("_regions") or REGIONS
     start, end, period, label = _resolve_range(params)
     start_ms, end_ms = int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+    t0 = time.perf_counter()
+    _ensure_pricing()
+    timings["pricing_ms"] = round((time.perf_counter() - t0) * 1000, 2)
     prefixes = pricing.get_cross_region_prefixes()
     warnings = []
 
@@ -141,6 +198,7 @@ def build_payload(params: dict) -> dict:
     needs_pricing = set()
 
     for region in regions:
+        region_t0 = time.perf_counter()
         try:
             logs = boto3.client("logs", region_name=region, config=_BOTO_CFG)
             usage, series = aggregate(
@@ -149,6 +207,8 @@ def build_payload(params: dict) -> dict:
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"{region}: {exc}")
             continue
+        finally:
+            timings[f"logs_{region}_ms"] = round((time.perf_counter() - region_t0) * 1000, 2)
 
         for model, d in usage.items():
             cost = pricing.calculate_cost(
@@ -184,7 +244,9 @@ def build_payload(params: dict) -> dict:
             for k in ("input_tokens", "output_tokens", "invocations"):
                 merged_series[bucket][k] += vals[k]
 
+    ce_t0 = time.perf_counter()
     billed = _billed_cost_by_region(start, end)
+    timings["cost_explorer_ms"] = round((time.perf_counter() - ce_t0) * 1000, 2)
     if isinstance(billed, dict) and "_error" in billed:
         warnings.append(f"Cost Explorer unavailable: {billed['_error']}")
         billed = {}
@@ -212,6 +274,16 @@ def build_payload(params: dict) -> dict:
             "No live price found for: " + ", ".join(sorted(needs_pricing))
             + " (cost shown as 0 for these)."
         )
+
+    _log_json(
+        "usage_build_timing",
+        range=label,
+        regions=regions,
+        period_seconds=period,
+        model_count=len(by_model),
+        warning_count=len(warnings),
+        **timings,
+    )
 
     return {
         "range": {"start": start.isoformat(), "end": end.isoformat(), "period_seconds": period, "label": label},
@@ -300,47 +372,65 @@ def _validate_chat(body):
 
 
 def handler(event, context):
+    started = time.perf_counter()
     event = event or {}
     ctx = event.get("requestContext", {}).get("http", {})
     method = ctx.get("method", "GET")
     path = ctx.get("path", "") or event.get("rawPath", "")
 
+    def finish(code, body):
+        _log_json(
+            "http_request",
+            method=method,
+            path=path,
+            status=code,
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+        )
+        return _resp(code, body)
+
     if method == "OPTIONS":
-        return _resp(204, {})
+        return finish(204, {})
 
     if path.endswith("/ask") and method == "POST":
         try:
             raw_body = event.get("body") or "{}"
             if len(raw_body.encode("utf-8")) > MAX_BODY_BYTES:
-                return _resp(413, {"error": "request body too large"})
+                return finish(413, {"error": "request body too large"})
             body = json.loads(raw_body)
             history = _validate_chat(body)
             if isinstance(history, str):  # validation error message
-                return _resp(400, {"error": history})
+                return finish(400, {"error": history})
             import ask  # lazy import avoids loading bedrock-runtime for /usage
-            return _resp(200, {"answer": ask.ask_chat(history, region=CONTROL_REGION)})
+            ask_t0 = time.perf_counter()
+            answer = ask.ask_chat(history, region=CONTROL_REGION)
+            _log_json(
+                "ask_timing",
+                turns=len(history),
+                bedrock_ms=round((time.perf_counter() - ask_t0) * 1000, 2),
+            )
+            return finish(200, {"answer": answer})
         except json.JSONDecodeError:
-            return _resp(400, {"error": "invalid JSON body"})
+            return finish(400, {"error": "invalid JSON body"})
         except Exception as exc:  # noqa: BLE001
             print(f"/ask failed: {type(exc).__name__}: {exc}")
-            return _resp(500, {"error": "Ask is temporarily unavailable."})
+            return finish(500, {"error": "Ask is temporarily unavailable."})
 
     if not path.endswith("/usage"):
-        return _resp(404, {"error": "not found"})
+        return finish(404, {"error": "not found"})
     if method != "GET":
-        return _resp(405, {"error": "method not allowed"})
+        return finish(405, {"error": "method not allowed"})
 
     params = event.get("queryStringParameters") or {}
     if params.get("regions"):
         requested = [r.strip() for r in params["regions"].split(",") if r.strip()]
         params["_regions"] = [r for r in requested if r in REGIONS] or REGIONS
     try:
-        return _resp(200, build_payload(params))
+        return finish(200, get_usage_payload(params))
     except ValueError as exc:
-        return _resp(400, {"error": str(exc)})
+        return finish(400, {"error": str(exc)})
     except Exception as exc:  # noqa: BLE001
         print(f"/usage failed: {type(exc).__name__}: {exc}")
-        return _resp(500, {"error": "Usage data is temporarily unavailable."})
+        return finish(500, {"error": "Usage data is temporarily unavailable."})
 
 
 if __name__ == "__main__":
