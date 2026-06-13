@@ -17,6 +17,7 @@ from botocore.config import Config
 # Haiku by default — cheap and plenty for this. Override per deploy/region.
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "jp.anthropic.claude-haiku-4-5-20251001-v1:0")
 MAX_TURNS = int(os.environ.get("ASK_MAX_TURNS", "5"))
+MAX_TOKENS = int(os.environ.get("ASK_MAX_TOKENS", "1600"))
 
 # Guardrail (set by the SAM stack). When present, every Converse call is screened.
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "")
@@ -78,7 +79,7 @@ def _converse_kwargs(messages):
         "system": [{"text": SYSTEM_PROMPT}],
         "messages": messages,
         "toolConfig": {"tools": TOOLS},
-        "inferenceConfig": {"maxTokens": 800, "temperature": 0.2},
+        "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": 0.2},
     }
     if GUARDRAIL_ID:
         kwargs["guardrailConfig"] = {

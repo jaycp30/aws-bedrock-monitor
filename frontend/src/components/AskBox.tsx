@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import Lottie from "lottie-react";
 import { askChat, type ChatMessage } from "../api";
-import thinkingAnimation from "../assets/ask-thinking.json";
 
 const SUGGESTIONS = [
   "Summarize my Bedrock usage this week",
@@ -12,11 +10,6 @@ const SUGGESTIONS = [
 // How many recent turns travel with each request. The backend enforces its
 // own cap; this just keeps request size and token cost predictable.
 const SENT_TURNS = 12;
-
-// Skip the animation for users who prefer reduced motion (they keep the text).
-const REDUCED_MOTION =
-  typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export function AskBox() {
   const [q, setQ] = useState("");
@@ -63,9 +56,7 @@ export function AskBox() {
           ))}
           {loading && (
             <div className="ask__thinking" role="status" aria-label="Working on your question">
-              {!REDUCED_MOTION && (
-                <Lottie animationData={thinkingAnimation} loop className="ask__thinking-anim" />
-              )}
+              <ThinkingMarks />
               <span>Thinking…</span>
             </div>
           )}
@@ -73,9 +64,7 @@ export function AskBox() {
       )}
       {thread.length === 0 && loading && (
         <div className="ask__thinking" role="status" aria-label="Working on your question">
-          {!REDUCED_MOTION && (
-            <Lottie animationData={thinkingAnimation} loop className="ask__thinking-anim" />
-          )}
+          <ThinkingMarks />
           <span>Thinking…</span>
         </div>
       )}
@@ -125,5 +114,15 @@ export function AskBox() {
         Guardrail keeps it to usage &amp; cost topics. Each question incurs a small token cost.
       </p>
     </section>
+  );
+}
+
+function ThinkingMarks() {
+  return (
+    <span className="ask__thinking-marks" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+    </span>
   );
 }

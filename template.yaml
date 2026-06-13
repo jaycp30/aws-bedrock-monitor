@@ -49,6 +49,7 @@ Resources:
           REGIONS: !Ref Regions
           CORS_ORIGIN: !Ref FrontendUrl
           BEDROCK_MODEL_ID: !Ref BedrockModelId
+          ASK_MAX_TOKENS: "1600"
           GUARDRAIL_ID: !GetAtt UsageGuardrail.GuardrailId
           GUARDRAIL_VERSION: !GetAtt UsageGuardrailVersion.Version
       Policies:
@@ -81,8 +82,8 @@ Resources:
               Action:
                 - bedrock:InvokeModel
               Resource:
-                - "arn:aws:bedrock:*::foundation-model/*"
-                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*"
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude*"
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/${BedrockModelId}"
             - Sid: AskAgentGuardrail
               Effect: Allow
               Action:
@@ -227,6 +228,15 @@ Resources:
       UserPoolId: !Ref UserPool
       ClientName: !Sub "${AWS::StackName}-web"
       GenerateSecret: false
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 1
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
       AllowedOAuthFlows:
         - code
       AllowedOAuthScopes:

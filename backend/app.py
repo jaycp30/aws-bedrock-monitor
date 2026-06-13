@@ -41,6 +41,8 @@ CONTROL_REGION = os.environ.get("AWS_REGION") or PRICING_REGION
 CE_REGION = os.environ.get("CE_REGION", "us-east-1")
 CE_CACHE_TTL_SECONDS = int(os.environ.get("CE_CACHE_TTL_SECONDS", str(6 * 3600)))
 CE_CACHE_DIR = os.environ.get("CE_CACHE_DIR", "/tmp")
+MAX_RANGE_DAYS = int(os.environ.get("MAX_RANGE_DAYS", "90"))
+MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(64 * 1024)))
 
 _BOTO_CFG = Config(retries={"max_attempts": 3, "mode": "standard"})
 
@@ -65,8 +67,17 @@ def _resolve_range(params: dict):
     now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
     rng = (params.get("range") or "today").lower()
     if rng == "custom" and params.get("start") and params.get("end"):
-        start = dt.datetime.fromisoformat(params["start"]).astimezone(dt.timezone.utc)
-        end = dt.datetime.fromisoformat(params["end"]).astimezone(dt.timezone.utc)
+        try:
+            start = dt.datetime.fromisoformat(params["start"]).astimezone(dt.timezone.utc)
+            end = dt.datetime.fromisoformat(params["end"]).astimezone(dt.timezone.utc)
+        except ValueError as exc:
+            raise ValueError("invalid custom date range") from exc
+        if end <= start:
+            raise ValueError("custom range end must be after start")
+        if end > now:
+            end = now
+        if (end - start).days > MAX_RANGE_DAYS:
+            raise ValueError(f"custom range cannot exceed {MAX_RANGE_DAYS} days")
         period = 3600 if (end - start).total_seconds() <= 3 * 86400 else 86400
         return start, end, period, "custom"
     if rng in ("today", "day", "24h"):
@@ -226,10 +237,13 @@ def _empty_region(r):
 # --------------------------------------------------------------------------- #
 # HTTP handler
 # --------------------------------------------------------------------------- #
+_CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "http://localhost:5173")
 _CORS = {
-    "Access-Control-Allow-Origin": os.environ.get("CORS_ORIGIN", "*"),
+    "Access-Control-Allow-Origin": _CORS_ORIGIN,
     "Access-Control-Allow-Headers": "authorization,content-type",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Max-Age": "600",
+    "X-Content-Type-Options": "nosniff",
     "Content-Type": "application/json",
 }
 
@@ -267,9 +281,12 @@ def _validate_chat(body):
         if not isinstance(turn, dict):
             return "each message must be an object"
         role = turn.get("role")
-        text = (turn.get("text") or "").strip()
+        raw_text = turn.get("text")
         if role not in ("user", "assistant"):
             return "message role must be user or assistant"
+        if not isinstance(raw_text, str):
+            return "message text must be a string"
+        text = raw_text.strip()
         if not text:
             return "message text must not be empty"
         history.append({"role": role, "text": text[:MAX_TURN_CHARS]})
@@ -288,26 +305,42 @@ def handler(event, context):
     method = ctx.get("method", "GET")
     path = ctx.get("path", "") or event.get("rawPath", "")
 
+    if method == "OPTIONS":
+        return _resp(204, {})
+
     if path.endswith("/ask") and method == "POST":
         try:
-            body = json.loads(event.get("body") or "{}")
+            raw_body = event.get("body") or "{}"
+            if len(raw_body.encode("utf-8")) > MAX_BODY_BYTES:
+                return _resp(413, {"error": "request body too large"})
+            body = json.loads(raw_body)
             history = _validate_chat(body)
             if isinstance(history, str):  # validation error message
                 return _resp(400, {"error": history})
             import ask  # lazy import avoids loading bedrock-runtime for /usage
             return _resp(200, {"answer": ask.ask_chat(history, region=CONTROL_REGION)})
+        except json.JSONDecodeError:
+            return _resp(400, {"error": "invalid JSON body"})
         except Exception as exc:  # noqa: BLE001
-            return _resp(500, {"error": str(exc)})
+            print(f"/ask failed: {type(exc).__name__}: {exc}")
+            return _resp(500, {"error": "Ask is temporarily unavailable."})
 
-    # default: GET /usage
+    if not path.endswith("/usage"):
+        return _resp(404, {"error": "not found"})
+    if method != "GET":
+        return _resp(405, {"error": "method not allowed"})
+
     params = event.get("queryStringParameters") or {}
     if params.get("regions"):
         requested = [r.strip() for r in params["regions"].split(",") if r.strip()]
         params["_regions"] = [r for r in requested if r in REGIONS] or REGIONS
     try:
         return _resp(200, build_payload(params))
+    except ValueError as exc:
+        return _resp(400, {"error": str(exc)})
     except Exception as exc:  # noqa: BLE001
-        return _resp(500, {"error": str(exc)})
+        print(f"/usage failed: {type(exc).__name__}: {exc}")
+        return _resp(500, {"error": "Usage data is temporarily unavailable."})
 
 
 if __name__ == "__main__":
