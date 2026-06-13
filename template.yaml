@@ -146,13 +146,23 @@ Resources:
         TopicsConfig:
           - Name: CreativeWriting
             Type: DENY
+            # KNOWN LIMITATION (accepted for sandbox): the Claude model names
+            # "Haiku" and "Sonnet" are poetry forms, so classic-tier topic
+            # classification mis-reads cost questions that name them (e.g.
+            # "is Haiku cheaper than Sonnet?") as creative writing and blocks
+            # them. A reworded definition + explicit carve-out were tested via
+            # apply-guardrail and did NOT fix it — the classic classifier can't
+            # disambiguate the proper nouns. Workaround: phrase comparisons
+            # without the names ("which model costs more per token"). Revisit
+            # with standard-tier topics if name-based comparison matters.
+            # See wiki QA-Hardening-Findings.md finding #12.
             Definition: >-
-              Requests for creative or artistic content such as poems, stories,
-              jokes, songs, lyrics, essays, fiction, or roleplay.
+              Requests to write, compose, or generate creative content like
+              poems, stories, jokes, songs, lyrics, fiction, or roleplay.
             Examples:
               - "Write me a poem."
               - "Tell me a joke."
-              - "Write a short story about a dragon."
+              - "Write me a haiku about serverless."
           - Name: GeneralKnowledge
             Type: DENY
             Definition: >-
