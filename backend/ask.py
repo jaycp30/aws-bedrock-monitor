@@ -125,10 +125,31 @@ def ask_chat(history: list[dict], region: str | None = None) -> str:
         region_name=region or os.environ.get("AWS_REGION"),
         config=_BOTO_CFG,
     )
-    messages = [
-        {"role": turn["role"], "content": [{"text": turn["text"]}]}
-        for turn in history[-MAX_HISTORY_TURNS:]
-    ]
+    # Build the Converse message list, but GUARD ONLY THE LATEST USER TURN.
+    #
+    # Bedrock applies the Guardrail to every content block UNLESS we use input
+    # tagging — when any block is wrapped in `guardContent`, only the tagged
+    # content is screened. We resend recent history on each request, so without
+    # this a prior turn that tripped the Guardrail (e.g. a prompt-injection
+    # attempt) would be re-scanned and re-blocked on every later request,
+    # stonewalling otherwise-valid questions until that turn scrolls out of the
+    # window. Tagging only the newest user turn screens fresh input while
+    # leaving past turns as inert context. (Model *output* is screened
+    # regardless of input tagging.)
+    recent = history[-MAX_HISTORY_TURNS:]
+    last_user_idx = max(
+        (i for i, t in enumerate(recent) if t["role"] == "user"),
+        default=-1,
+    )
+    messages = []
+    for i, turn in enumerate(recent):
+        guard_this_turn = i == last_user_idx and bool(GUARDRAIL_ID)
+        block = (
+            {"guardContent": {"text": {"text": turn["text"]}}}
+            if guard_this_turn
+            else {"text": turn["text"]}
+        )
+        messages.append({"role": turn["role"], "content": [block]})
 
     for turn_index in range(MAX_TURNS):
         converse_t0 = time.perf_counter()
