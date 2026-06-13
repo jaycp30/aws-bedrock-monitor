@@ -10,6 +10,7 @@ real numbers (never hallucinated). Three layers keep it on-task:
 """
 
 import os
+import time
 
 import boto3
 from botocore.config import Config
@@ -65,11 +66,27 @@ TOOLS = [
 ]
 
 
+def _log_json(event: str, **fields):
+    """Emit compact structured logs for CloudWatch without logging prompts."""
+    import json
+
+    print(json.dumps({"event": event, **fields}, default=str))
+
+
 def _run_tool(name: str, tool_input: dict) -> dict:
-    from app import build_payload  # lazy import avoids circular import at load
+    from app import get_usage_payload  # lazy import avoids circular import at load
 
     if name == "get_usage":
-        return build_payload({"range": tool_input.get("range", "7d")})
+        requested_range = tool_input.get("range", "7d")
+        t0 = time.perf_counter()
+        result = get_usage_payload({"range": requested_range})
+        _log_json(
+            "ask_tool_timing",
+            tool=name,
+            range=requested_range,
+            duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
+        return result
     return {"error": f"unknown tool: {name}"}
 
 
@@ -113,9 +130,17 @@ def ask_chat(history: list[dict], region: str | None = None) -> str:
         for turn in history[-MAX_HISTORY_TURNS:]
     ]
 
-    for _ in range(MAX_TURNS):
+    for turn_index in range(MAX_TURNS):
+        converse_t0 = time.perf_counter()
         resp = bedrock.converse(**_converse_kwargs(messages))
+        converse_ms = round((time.perf_counter() - converse_t0) * 1000, 2)
         stop = resp.get("stopReason")
+        _log_json(
+            "ask_converse_timing",
+            turn=turn_index + 1,
+            stop_reason=stop,
+            duration_ms=converse_ms,
+        )
         out_msg = resp["output"]["message"]
         messages.append(out_msg)
 

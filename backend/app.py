@@ -406,7 +406,7 @@ def handler(event, context):
             _log_json(
                 "ask_timing",
                 turns=len(history),
-                bedrock_ms=round((time.perf_counter() - ask_t0) * 1000, 2),
+                ask_chat_ms=round((time.perf_counter() - ask_t0) * 1000, 2),
             )
             return finish(200, {"answer": answer})
         except json.JSONDecodeError:

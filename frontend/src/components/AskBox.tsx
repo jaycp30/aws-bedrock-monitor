@@ -15,6 +15,7 @@ export function AskBox() {
   const [q, setQ] = useState("");
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [slowAsk, setSlowAsk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -24,6 +25,15 @@ export function AskBox() {
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      setSlowAsk(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowAsk(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   async function submit(question: string) {
     const text = question.trim();
@@ -57,7 +67,7 @@ export function AskBox() {
           {loading && (
             <div className="ask__thinking" role="status" aria-label="Working on your question">
               <ThinkingMarks />
-              <span>Thinking…</span>
+              <span>{slowAsk ? "Checking usage with Bedrock…" : "Thinking…"}</span>
             </div>
           )}
         </div>
@@ -65,7 +75,7 @@ export function AskBox() {
       {thread.length === 0 && loading && (
         <div className="ask__thinking" role="status" aria-label="Working on your question">
           <ThinkingMarks />
-          <span>Thinking…</span>
+          <span>{slowAsk ? "Checking usage with Bedrock…" : "Thinking…"}</span>
         </div>
       )}
       {error && <div className="banner banner--err">{error}</div>}
