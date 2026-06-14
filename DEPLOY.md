@@ -47,18 +47,37 @@ source — so logging must be ON in every region you monitor. Logs only capture
 invocations made *after* logging is enabled. (Your **Tokyo sandbox is already
 set up** from the earlier handoff session.)
 
-Easiest path — reuse the `bedrock-lens` CLI you already have, once per region:
+There are **two procedures** depending on the account — pick the right one.
+
+#### Sandbox (Tokyo, personal account) — quick path
+
+Reuse the `bedrock-lens` CLI, once for Tokyo:
 
 ```bash
-bedrock-lens --setup --region us-east-1
-bedrock-lens --setup --region eu-west-1
-bedrock-lens --setup --region us-west-2
-bedrock-lens --setup --region ca-central-1
-bedrock-lens --setup --region ap-southeast-2
+bedrock-lens --setup --region ap-northeast-1
 ```
 
-Each run creates the `/aws/bedrock/model-invocations` log group + the IAM role
-Bedrock uses to write to it, and turns on model-invocation logging.
+This auto-creates the `/aws/bedrock/model-invocations` log group + an IAM role
+(`AmazonBedrockModelInvocationLoggingRole`) and turns logging on. Fine for the
+sandbox; **not** what we use for the client (its role lacks the
+`aws:SourceAccount`/`aws:SourceArn` hardening below).
+
+#### Client account (5 regions) — manual, hardened setup
+
+`bedrock-lens` is **not** used here. The client uses a hand-created, least-privilege
+role (`BedrockInvocationLoggingRole`) with confused-deputy protection on its trust
+policy, and the log group is created explicitly per region (the role intentionally
+omits `logs:CreateLogGroup`). Full reproducible commands live in the wiki:
+**[Bedrock Invocation Logging → the exact manual client procedure](https://github.com/jaycp30/aws-bedrock-monitor/wiki/Bedrock-Invocation-Logging#the-exact-manual-client-procedure-reproducible)**.
+
+Summary of the chain: create the IAM role (trust policy scoped to
+`aws:SourceAccount` + `aws:SourceArn`) → attach an inline policy with only
+`logs:CreateLogStream` + `logs:PutLogEvents` → per region, `aws logs
+create-log-group` then `aws bedrock put-model-invocation-logging-configuration`.
+
+> **Privacy:** the client config sets `textDataDeliveryEnabled: false` — prompts and
+> responses are never logged, only token counts. See
+> [Logging Data Delivery & Privacy](https://github.com/jaycp30/aws-bedrock-monitor/wiki/Logging-Data-Delivery-and-Privacy).
 
 **Verify** (per region):
 
