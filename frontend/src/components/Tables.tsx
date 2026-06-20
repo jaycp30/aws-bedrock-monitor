@@ -1,4 +1,4 @@
-import type { ModelRow, RegionRow } from "../api";
+import type { ModelRow, RegionRow, UserRow } from "../api";
 import { fmtInt, fmtUsd, regionLabel } from "../format";
 
 export function RegionTable({ rows }: { rows: RegionRow[] }) {
@@ -65,6 +65,47 @@ export function ModelTable({ rows }: { rows: ModelRow[] }) {
         {visible.length === 0 && (
           <tr>
             <td colSpan={7} className="empty">No model activity in this range.</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+export function UserTable({ rows }: { rows: UserRow[] }) {
+  const visible = rows.filter((r) => r.invocations > 0);
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th>User / principal</th>
+          <th>Regions</th>
+          <th className="num">Invocations</th>
+          <th className="num">Total tokens</th>
+          <th className="num">Input</th>
+          <th className="num">Output</th>
+          <th className="num">Cache R/W</th>
+          <th className="num">Est. cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        {visible.map((r) => (
+          <tr key={r.identity_arn || r.principal}>
+            <td>
+              <span className="mono">{r.principal}</span>
+            </td>
+            <td className="muted">{r.regions.map(regionLabel).join(", ")}</td>
+            <td className="num">{fmtInt(r.invocations)}</td>
+            <td className="num">{fmtInt(r.total_tokens)}</td>
+            <td className="num">{fmtInt(r.input_tokens)}</td>
+            <td className="num">{fmtInt(r.output_tokens)}</td>
+            <td className="num muted">{fmtInt(r.cache_read_tokens)} / {fmtInt(r.cache_write_tokens)}</td>
+            <td className="num">{fmtUsd(r.estimated_cost)}</td>
+          </tr>
+        ))}
+        {visible.length === 0 && (
+          <tr>
+            <td colSpan={8} className="empty">No user activity in this range.</td>
           </tr>
         )}
       </tbody>

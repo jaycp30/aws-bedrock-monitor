@@ -37,6 +37,42 @@ Globals:
 
 Resources:
   # ----------------------------------------------------------------------- #
+  # Shared usage cache (S3) + async Ask job store (DynamoDB)
+  # ----------------------------------------------------------------------- #
+  UsageCacheBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireUsageCache
+            Status: Enabled
+            Prefix: usage/
+            ExpirationInDays: 2
+
+  AskJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  # ----------------------------------------------------------------------- #
   # Backend: metrics API + Ask agent
   # ----------------------------------------------------------------------- #
   UsageFunction:
@@ -50,7 +86,14 @@ Resources:
           CORS_ORIGIN: !Ref FrontendUrl
           BEDROCK_MODEL_ID: !Ref BedrockModelId
           ASK_MAX_TOKENS: "1600"
-          USAGE_CACHE_TTL_SECONDS: "60"
+          USAGE_CACHE_TTL_SECONDS: "300"
+          USAGE_STALE_TTL_SECONDS: "86400"
+          USAGE_REGION_WORKERS: "5"
+          USAGE_WARMUP_RANGES: "today,7d,30d,90d"
+          USAGE_SHARED_CACHE_BUCKET: !Ref UsageCacheBucket
+          ASK_JOBS_TABLE: !Ref AskJobsTable
+          ASK_WORKER_FUNCTION: !Ref AskWorkerFunction
+          ASK_JOB_TTL_SECONDS: "21600"
           GUARDRAIL_ID: !GetAtt UsageGuardrail.GuardrailId
           GUARDRAIL_VERSION: !GetAtt UsageGuardrailVersion.Version
       Policies:
@@ -78,6 +121,24 @@ Resources:
               Action:
                 - ce:GetCostAndUsage
               Resource: "*"
+            - Sid: SharedUsageCache
+              Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "${UsageCacheBucket.Arn}/usage/*"
+            - Sid: AskJobsApi
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt AskJobsTable.Arn
+            - Sid: AskWorkerInvoke
+              Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt AskWorkerFunction.Arn
             - Sid: AskAgentInvoke
               Effect: Allow
               Action:
@@ -103,6 +164,90 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /ask
             Method: POST
+        GetAskJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /ask/{job_id}
+            Method: GET
+        UsageCacheWarmup:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Enabled: true
+            Input: '{"warmup":true}'
+
+  # ----------------------------------------------------------------------- #
+  # Async Ask worker — runs Bedrock Converse off the API request path so long
+  # Ask calls never hit the HTTP API's 30s integration timeout.
+  # ----------------------------------------------------------------------- #
+  AskWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: app.ask_worker_handler
+      Environment:
+        Variables:
+          REGIONS: !Ref Regions
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          ASK_MAX_TOKENS: "1600"
+          USAGE_CACHE_TTL_SECONDS: "300"
+          USAGE_STALE_TTL_SECONDS: "86400"
+          USAGE_REGION_WORKERS: "5"
+          USAGE_WARMUP_RANGES: "today,7d,30d,90d"
+          USAGE_SHARED_CACHE_BUCKET: !Ref UsageCacheBucket
+          ASK_JOBS_TABLE: !Ref AskJobsTable
+          ASK_JOB_TTL_SECONDS: "21600"
+          GUARDRAIL_ID: !GetAtt UsageGuardrail.GuardrailId
+          GUARDRAIL_VERSION: !GetAtt UsageGuardrailVersion.Version
+      Policies:
+        - Statement:
+            - Sid: ReadInvocationLogs
+              Effect: Allow
+              Action:
+                - logs:FilterLogEvents
+              Resource: !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/bedrock/model-invocations:*"
+            - Sid: LivePricing
+              Effect: Allow
+              Action:
+                - pricing:ListPriceLists
+                - pricing:GetPriceListFileUrl
+                - pricing:GetProducts
+              Resource: "*"
+            - Sid: BedrockCatalog
+              Effect: Allow
+              Action:
+                - bedrock:ListFoundationModels
+                - bedrock:ListInferenceProfiles
+              Resource: "*"
+            - Sid: BilledCost
+              Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+              Resource: "*"
+            - Sid: SharedUsageCache
+              Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "${UsageCacheBucket.Arn}/usage/*"
+            - Sid: AskJobsWorker
+              Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource: !GetAtt AskJobsTable.Arn
+            - Sid: AskAgentInvoke
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/anthropic.claude*"
+                - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/${BedrockModelId}"
+            - Sid: AskAgentGuardrail
+              Effect: Allow
+              Action:
+                - bedrock:ApplyGuardrail
+              Resource: !GetAtt UsageGuardrail.GuardrailArn
 
   HttpApi:
     Type: AWS::Serverless::HttpApi

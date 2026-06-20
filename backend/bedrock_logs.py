@@ -78,6 +78,21 @@ def normalize_model_id(model_id: str, cross_region_prefixes: tuple[str, ...]) ->
     return re.sub(r":\d+$", "", model_id)
 
 
+def identity_principal(record: dict) -> tuple[str, str]:
+    """Return a display principal and full identity ARN from an invocation log."""
+    arn = ((record.get("identity") or {}).get("arn") or "unknown").strip() or "unknown"
+    if arn == "unknown":
+        return "unknown", arn
+    if ":user/" in arn:
+        return arn.rsplit(":user/", 1)[-1], arn
+    if ":assumed-role/" in arn:
+        parts = arn.rsplit(":assumed-role/", 1)[-1].split("/")
+        return "/".join(parts[:2]) if len(parts) >= 2 else parts[0], arn
+    if ":role/" in arn:
+        return arn.rsplit(":role/", 1)[-1], arn
+    return arn.rsplit(":", 1)[-1], arn
+
+
 def _bucket(ts_ms: int, period_seconds: int) -> str:
     """Floor an epoch-ms timestamp to a period boundary; return ISO string."""
     if ts_ms <= 0:
@@ -87,20 +102,23 @@ def _bucket(ts_ms: int, period_seconds: int) -> str:
 
 
 def aggregate(records, cross_region_prefixes, period_seconds, into=None):
-    """Sum tokens/calls per normalized modelId, and build a time series.
+    """Sum tokens/calls per normalized modelId, principal, and time bucket.
 
-    Returns (usage, series):
+    Returns (usage, series, users):
       usage[model] = {calls, input_tokens, output_tokens,
                       cache_write_tokens, cache_read_tokens, is_global, raw_id}
       series[bucket_iso] = {input_tokens, output_tokens, invocations}
+      users[principal].models[model] = same token/call fields as usage[model]
     """
     usage: dict[str, dict] = into if into is not None else {}
     series: dict[str, dict] = {}
+    users: dict[str, dict] = {}
 
     for r in records:
         raw_id = r.get("modelId", "unknown")
         is_global = raw_id.lower().startswith("global.")
         model = normalize_model_id(raw_id, cross_region_prefixes)
+        principal, identity_arn = identity_principal(r)
 
         inp_data = r.get("input") or {}
         inp = inp_data.get("inputTokenCount") or 0
@@ -127,6 +145,33 @@ def aggregate(records, cross_region_prefixes, period_seconds, into=None):
         slot["cache_read_tokens"] += cr
         slot["is_global"] = slot["is_global"] or is_global
 
+        user = users.setdefault(
+            principal,
+            {
+                "principal": principal,
+                "identity_arn": identity_arn,
+                "models": {},
+            },
+        )
+        model_slot = user["models"].setdefault(
+            model,
+            {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_write_tokens": 0,
+                "cache_read_tokens": 0,
+                "is_global": False,
+                "raw_id": raw_id,
+            },
+        )
+        model_slot["calls"] += 1
+        model_slot["input_tokens"] += inp
+        model_slot["output_tokens"] += out
+        model_slot["cache_write_tokens"] += cw
+        model_slot["cache_read_tokens"] += cr
+        model_slot["is_global"] = model_slot["is_global"] or is_global
+
         b = _bucket(r.get("_timestamp", 0), period_seconds)
         if b:
             sb = series.setdefault(b, {"input_tokens": 0, "output_tokens": 0, "invocations": 0})
@@ -134,4 +179,4 @@ def aggregate(records, cross_region_prefixes, period_seconds, into=None):
             sb["output_tokens"] += out
             sb["invocations"] += 1
 
-    return usage, series
+    return usage, series, users

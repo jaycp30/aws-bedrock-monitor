@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AuthError, DEMO_MODE, fetchUsage, type UsagePayload } from "./api";
 import { handleRedirect, login, logout } from "./auth";
 import { Kpi } from "./components/Kpi";
 import { UsageChart } from "./components/UsageChart";
-import { ModelTable, RegionTable } from "./components/Tables";
+import { ModelTable, RegionTable, UserTable } from "./components/Tables";
 import { AskBox } from "./components/AskBox";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { LoadingState } from "./components/LoadingState";
@@ -22,6 +22,8 @@ export default function App() {
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const usageCacheRef = useRef<Record<string, UsagePayload>>({});
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     if (DEMO_MODE) {
@@ -33,15 +35,26 @@ export default function App() {
 
   useEffect(() => {
     if (!authed) return;
+    const cached = usageCacheRef.current[range];
+    if (cached) setData(cached);
+    else setData(null);
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
     setLoading(true);
     setError(null);
     fetchUsage(range)
-      .then(setData)
+      .then((payload) => {
+        usageCacheRef.current[range] = payload;
+        if (requestSeqRef.current === requestSeq) setData(payload);
+      })
       .catch((e) => {
+        if (requestSeqRef.current !== requestSeq) return;
         if (e instanceof AuthError) setAuthed(false);
         else setError(e.message);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (requestSeqRef.current === requestSeq) setLoading(false);
+      });
   }, [authed, range]);
 
   if (authed === null) {
@@ -119,7 +132,7 @@ export default function App() {
           )}
         </section>
 
-        <AskBox />
+        <AskBox range={range} />
 
         <section className="card">
           <h2>By region</h2>
@@ -129,6 +142,11 @@ export default function App() {
         <section className="card">
           <h2>By model</h2>
           {data && <ModelTable rows={data.by_model} />}
+        </section>
+
+        <section className="card">
+          <h2>By user</h2>
+          {data && <UserTable rows={data.by_user ?? []} />}
         </section>
 
         {data && (

@@ -11,7 +11,11 @@ const SUGGESTIONS = [
 // own cap; this just keeps request size and token cost predictable.
 const SENT_TURNS = 12;
 
-export function AskBox() {
+interface AskBoxProps {
+  range: string;
+}
+
+export function AskBox({ range }: AskBoxProps) {
   const [q, setQ] = useState("");
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,9 +48,11 @@ export function AskBox() {
     setLoading(true);
     setError(null);
     try {
-      const answer = await askChat(nextThread.slice(-SENT_TURNS));
+      const answer = await askChat(nextThread.slice(-SENT_TURNS), range);
       setThread([...nextThread, { role: "assistant", text: answer }]);
     } catch (e) {
+      setThread(thread);
+      setQ(text);
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setLoading(false);

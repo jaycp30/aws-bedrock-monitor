@@ -19,6 +19,7 @@ from botocore.config import Config
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "jp.anthropic.claude-haiku-4-5-20251001-v1:0")
 MAX_TURNS = int(os.environ.get("ASK_MAX_TURNS", "5"))
 MAX_TOKENS = int(os.environ.get("ASK_MAX_TOKENS", "1600"))
+ALLOWED_RANGES = {"today", "7d", "30d", "90d"}
 
 # Guardrail (set by the SAM stack). When present, every Converse call is screened.
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "")
@@ -29,7 +30,8 @@ _BOTO_CFG = Config(retries={"max_attempts": 3, "mode": "standard"})
 SYSTEM_PROMPT = (
     "You are the assistant for an AWS Bedrock usage & cost dashboard. "
     "Answer ONLY questions about this account's Bedrock usage: tokens, invocations, "
-    "models, regions, prompt-cache usage, and cost (estimated and billed). "
+    "models, regions, IAM users/principals, prompt-cache usage, and cost (estimated and billed). "
+    "Questions asking which user, IAM principal, or identity used Bedrock most are in scope. "
     "Also explain dashboard concepts when asked — e.g. prompt caching, cache "
     "read/write tokens, invocations, and estimated vs billed cost. "
     "Always use the get_usage tool to fetch real figures — never invent numbers. "
@@ -45,8 +47,8 @@ TOOLS = [
             "name": "get_usage",
             "description": (
                 "Get Bedrock usage and cost for a time range, broken down by model and "
-                "region: input/output/cache tokens, invocations, estimated cost (live "
-                "prices) and billed cost (Cost Explorer)."
+                "region and IAM user/principal: input/output/cache tokens, invocations, "
+                "estimated cost (live prices) and billed cost (Cost Explorer)."
             ),
             "inputSchema": {
                 "json": {
@@ -73,11 +75,23 @@ def _log_json(event: str, **fields):
     print(json.dumps({"event": event, **fields}, default=str))
 
 
-def _run_tool(name: str, tool_input: dict) -> dict:
+def _safe_range(value: str | None, fallback: str = "7d") -> str:
+    return value if isinstance(value, str) and value in ALLOWED_RANGES else fallback
+
+
+def _content_text(blocks: list[dict]) -> str:
+    return "".join(b.get("text", "") for b in blocks).strip()
+
+
+def _content_keys(blocks: list[dict]) -> list[list[str]]:
+    return [sorted(b.keys()) for b in blocks]
+
+
+def _run_tool(name: str, tool_input: dict, default_range: str = "7d") -> dict:
     from app import get_usage_payload  # lazy import avoids circular import at load
 
     if name == "get_usage":
-        requested_range = tool_input.get("range", "7d")
+        requested_range = _safe_range(tool_input.get("range"), default_range)
         t0 = time.perf_counter()
         result = get_usage_payload({"range": requested_range})
         _log_json(
@@ -90,10 +104,15 @@ def _run_tool(name: str, tool_input: dict) -> dict:
     return {"error": f"unknown tool: {name}"}
 
 
-def _converse_kwargs(messages):
+def _converse_kwargs(messages, default_range: str = "7d"):
+    system_prompt = (
+        SYSTEM_PROMPT
+        + f" The dashboard's currently selected range is {default_range}; "
+        + "use that range when the user does not specify a different time range."
+    )
     kwargs = {
         "modelId": MODEL_ID,
-        "system": [{"text": SYSTEM_PROMPT}],
+        "system": [{"text": system_prompt}],
         "messages": messages,
         "toolConfig": {"tools": TOOLS},
         "inferenceConfig": {"maxTokens": MAX_TOKENS, "temperature": 0.2},
@@ -112,14 +131,15 @@ def _converse_kwargs(messages):
 MAX_HISTORY_TURNS = 12
 
 
-def ask(question: str, region: str | None = None) -> str:
+def ask(question: str, region: str | None = None, default_range: str = "7d") -> str:
     """Single-question entrypoint (CLI / legacy clients)."""
-    return ask_chat([{"role": "user", "text": question}], region=region)
+    return ask_chat([{"role": "user", "text": question}], region=region, default_range=default_range)
 
 
-def ask_chat(history: list[dict], region: str | None = None) -> str:
+def ask_chat(history: list[dict], region: str | None = None, default_range: str = "7d") -> str:
     """Multi-turn entrypoint: history is [{role: user|assistant, text: str}, ...],
     oldest first, ending with the user's latest message."""
+    default_range = _safe_range(default_range)
     bedrock = boto3.client(
         "bedrock-runtime",
         region_name=region or os.environ.get("AWS_REGION"),
@@ -153,7 +173,7 @@ def ask_chat(history: list[dict], region: str | None = None) -> str:
 
     for turn_index in range(MAX_TURNS):
         converse_t0 = time.perf_counter()
-        resp = bedrock.converse(**_converse_kwargs(messages))
+        resp = bedrock.converse(**_converse_kwargs(messages, default_range))
         converse_ms = round((time.perf_counter() - converse_t0) * 1000, 2)
         stop = resp.get("stopReason")
         _log_json(
@@ -167,17 +187,25 @@ def ask_chat(history: list[dict], region: str | None = None) -> str:
 
         # Guardrail blocked the prompt or response — return its safe message.
         if stop == "guardrail_intervened":
-            text = "".join(b.get("text", "") for b in out_msg["content"]).strip()
+            text = _content_text(out_msg["content"])
             return text or "That request was blocked by the usage policy. Ask me about your Bedrock usage or cost instead."
 
         if stop != "tool_use":
-            return "".join(b.get("text", "") for b in out_msg["content"]).strip()
+            text = _content_text(out_msg["content"])
+            if text:
+                return text
+            _log_json(
+                "ask_empty_answer",
+                stop_reason=stop,
+                content_keys=_content_keys(out_msg.get("content", [])),
+            )
+            return "I could not generate a text answer for that request. Try asking again or narrowing the time range."
 
         tool_results = []
         for block in out_msg["content"]:
             if "toolUse" in block:
                 tu = block["toolUse"]
-                result = _run_tool(tu["name"], tu.get("input", {}))
+                result = _run_tool(tu["name"], tu.get("input", {}), default_range)
                 tool_results.append(
                     {"toolResult": {"toolUseId": tu["toolUseId"], "content": [{"json": result}]}}
                 )
