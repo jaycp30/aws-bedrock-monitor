@@ -372,11 +372,20 @@ Resources:
         - email
       Policies:
         PasswordPolicy:
-          MinimumLength: 12
+          MinimumLength: 14
           RequireLowercase: true
           RequireUppercase: true
           RequireNumbers: true
           RequireSymbols: true
+          # Temporary (invite) passwords expire in 3 days, down from the 7-day default.
+          TemporaryPasswordValidityDays: 3
+      # Enforce TOTP (authenticator-app) MFA for every user. The Cognito Hosted UI
+      # drives enrollment (QR code) + challenge natively, so the SPA needs no change.
+      # SMS MFA is intentionally omitted (needs an SNS role, per-message cost, and the
+      # us-east-1 SMS sandbox) — TOTP is stronger and free.
+      MfaConfiguration: "ON"
+      EnabledMfas:
+        - SOFTWARE_TOKEN_MFA
 
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient

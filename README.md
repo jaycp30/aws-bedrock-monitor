@@ -5,6 +5,8 @@ per-model / per-region token usage (including prompt-cache tokens), invocations,
 **estimated cost** (from live AWS prices) and **actual billed cost** (Cost
 Explorer) — plus a Guardrailed natural-language **Ask** agent.
 
+🎥 **Demo video:** [Watch the walkthrough on YouTube](https://www.youtube.com/watch?v=SVbLvth9-pA)
+
 > **Current phase:** built and deployed on a **personal AWS account** as a
 > learning exercise → personal GitHub (`jaycp30`). The UI uses a client brand
 > theme, but that's just styling — it only becomes client work if/when
