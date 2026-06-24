@@ -57,6 +57,10 @@ Resources:
             Status: Enabled
             Prefix: usage/
             ExpirationInDays: 2
+          - Id: ExpireCostCache
+            Status: Enabled
+            Prefix: cost/
+            ExpirationInDays: 2
 
   AskJobsTable:
     Type: AWS::DynamoDB::Table
@@ -126,7 +130,9 @@ Resources:
               Action:
                 - s3:GetObject
                 - s3:PutObject
-              Resource: !Sub "${UsageCacheBucket.Arn}/usage/*"
+              Resource:
+                - !Sub "${UsageCacheBucket.Arn}/usage/*"
+                - !Sub "${UsageCacheBucket.Arn}/cost/*"
             - Sid: AskJobsApi
               Effect: Allow
               Action:
@@ -173,7 +179,7 @@ Resources:
         UsageCacheWarmup:
           Type: Schedule
           Properties:
-            Schedule: rate(15 minutes)
+            Schedule: rate(30 minutes)
             Enabled: true
             Input: '{"warmup":true}'
 
@@ -230,7 +236,9 @@ Resources:
               Action:
                 - s3:GetObject
                 - s3:PutObject
-              Resource: !Sub "${UsageCacheBucket.Arn}/usage/*"
+              Resource:
+                - !Sub "${UsageCacheBucket.Arn}/usage/*"
+                - !Sub "${UsageCacheBucket.Arn}/cost/*"
             - Sid: AskJobsWorker
               Effect: Allow
               Action:

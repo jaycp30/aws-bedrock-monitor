@@ -55,6 +55,10 @@ USAGE_STALE_TTL_SECONDS = int(os.environ.get("USAGE_STALE_TTL_SECONDS", str(24 *
 USAGE_REGION_WORKERS = max(1, int(os.environ.get("USAGE_REGION_WORKERS", "5")))
 USAGE_SHARED_CACHE_BUCKET = os.environ.get("USAGE_SHARED_CACHE_BUCKET", "")
 USAGE_SHARED_CACHE_PREFIX = os.environ.get("USAGE_SHARED_CACHE_PREFIX", "usage/v1")
+# Cost Explorer results live under their own prefix in the same shared bucket so
+# the $0.01-per-call CE API is hit at most once per range per CE_CACHE_TTL_SECONDS
+# window, shared across all Lambda containers (not just one warm /tmp).
+CE_SHARED_CACHE_PREFIX = os.environ.get("CE_SHARED_CACHE_PREFIX", "cost/v1")
 USAGE_WARMUP_RANGES = [
     r.strip()
     for r in os.environ.get("USAGE_WARMUP_RANGES", "today,7d,30d,90d").split(",")
@@ -353,15 +357,91 @@ def _resolve_range(params: dict):
 # --------------------------------------------------------------------------- #
 # Cost Explorer billed cost (cached)
 # --------------------------------------------------------------------------- #
+def _ce_shared_cache_key(start_d: str, end_d: str) -> str:
+    return f"{CE_SHARED_CACHE_PREFIX.rstrip('/')}/{start_d}_{end_d}.json"
+
+
+def _read_shared_ce_cost(start_d: str, end_d: str, now: float) -> dict | None:
+    """Cross-container CE cost lookup backed by the shared S3 cache.
+
+    Returns the cached {region: cost} dict when present and within TTL, else None.
+    This is what stops every cold-start warmup from paying for a fresh CE call.
+    """
+    s3 = _get_s3_cache_client()
+    if s3 is None:
+        return None
+
+    object_key = _ce_shared_cache_key(start_d, end_d)
+    try:
+        resp = s3.get_object(Bucket=USAGE_SHARED_CACHE_BUCKET, Key=object_key)
+        entry = json.loads(resp["Body"].read())
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        if code not in ("NoSuchKey", "NoSuchBucket", "404"):
+            _log_json("ce_shared_cache", hit=False, error=code, key=object_key)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        _log_json("ce_shared_cache", hit=False, error=str(exc), key=object_key)
+        return None
+
+    age_seconds = now - float(entry.get("created_at") or 0)
+    if age_seconds >= CE_CACHE_TTL_SECONDS:
+        _log_json("ce_shared_cache", hit=False, expired=True, age_ms=round(age_seconds * 1000, 2), key=object_key)
+        return None
+
+    costs = entry.get("costs")
+    if not isinstance(costs, dict):
+        _log_json("ce_shared_cache", hit=False, error="costs missing", key=object_key)
+        return None
+
+    _log_json("ce_shared_cache", hit=True, age_ms=round(age_seconds * 1000, 2), key=object_key)
+    return costs
+
+
+def _write_shared_ce_cost(start_d: str, end_d: str, created_at: float, costs: dict) -> None:
+    s3 = _get_s3_cache_client()
+    if s3 is None:
+        return
+
+    object_key = _ce_shared_cache_key(start_d, end_d)
+    body = json.dumps({"created_at": created_at, "costs": costs}, separators=(",", ":")).encode("utf-8")
+    try:
+        s3.put_object(
+            Bucket=USAGE_SHARED_CACHE_BUCKET,
+            Key=object_key,
+            Body=body,
+            ContentType="application/json",
+            CacheControl=f"max-age={CE_CACHE_TTL_SECONDS}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log_json("ce_shared_cache", write=False, error=str(exc), key=object_key)
+
+
 def _billed_cost_by_region(start, end) -> dict:
     start_d = start.date().isoformat()
     end_d = (end.date() + dt.timedelta(days=1)).isoformat()
-    cache = os.path.join(CE_CACHE_DIR, f"ce_{start_d}_{end_d}.json")
-    if os.path.exists(cache) and (time.time() - os.path.getmtime(cache)) < CE_CACHE_TTL_SECONDS:
+    now = time.time()
+
+    # Tier 1: in-container /tmp cache — free, but only survives within one warm Lambda.
+    local_cache = os.path.join(CE_CACHE_DIR, f"ce_{start_d}_{end_d}.json")
+    if os.path.exists(local_cache) and (now - os.path.getmtime(local_cache)) < CE_CACHE_TTL_SECONDS:
         try:
-            return json.load(open(cache))
+            return json.load(open(local_cache))
         except (OSError, ValueError):
             pass
+
+    # Tier 2: shared S3 cache — survives cold starts and is shared across all
+    # containers, so the 30-min warmup no longer re-pays for CE on every cold run.
+    shared = _read_shared_ce_cost(start_d, end_d, now)
+    if shared is not None:
+        try:
+            with open(local_cache, "w") as fh:
+                json.dump(shared, fh)
+        except OSError:
+            pass
+        return shared
+
+    # Tier 3: genuine miss — pay for exactly one Cost Explorer call ($0.01).
     out = {}
     try:
         ce = boto3.client("ce", region_name=CE_REGION, config=_BOTO_CFG)
@@ -376,8 +456,13 @@ def _billed_cost_by_region(start, end) -> dict:
             for g in block.get("Groups", []):
                 region = g["Keys"][0] or "global"
                 out[region] = round(out.get(region, 0.0) + float(g["Metrics"]["UnblendedCost"]["Amount"]), 6)
-        with open(cache, "w") as fh:
-            json.dump(out, fh)
+        # Persist to both tiers. Only successful results are cached — never errors.
+        try:
+            with open(local_cache, "w") as fh:
+                json.dump(out, fh)
+        except OSError:
+            pass
+        _write_shared_ce_cost(start_d, end_d, now, out)
     except Exception as exc:  # noqa: BLE001
         out = {"_error": str(exc)}
     return out
