@@ -95,6 +95,11 @@ Resources:
           USAGE_REGION_WORKERS: "5"
           USAGE_WARMUP_RANGES: "today,7d,30d,90d"
           USAGE_SHARED_CACHE_BUCKET: !Ref UsageCacheBucket
+          # Billed (Cost Explorer) figure is recomputed at most once per 24 hours;
+          # served from the shared S3 CE cache in between. Billing data only settles
+          # a couple times a day, and the date-range cache key rolls daily anyway, so
+          # 24h is the practical floor for CE API spend. See _billed_cost_by_region.
+          CE_CACHE_TTL_SECONDS: "86400"
           ASK_JOBS_TABLE: !Ref AskJobsTable
           ASK_WORKER_FUNCTION: !Ref AskWorkerFunction
           ASK_JOB_TTL_SECONDS: "21600"
