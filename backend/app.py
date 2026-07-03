@@ -67,6 +67,11 @@ USAGE_WARMUP_RANGES = [
 ASK_JOBS_TABLE = os.environ.get("ASK_JOBS_TABLE", "")
 ASK_WORKER_FUNCTION = os.environ.get("ASK_WORKER_FUNCTION", "")
 ASK_JOB_TTL_SECONDS = int(os.environ.get("ASK_JOB_TTL_SECONDS", str(6 * 3600)))
+# When the API path hits a fully cold cache it fires a background warmup instead of
+# building the payload inline (a heavy range would blow the HTTP API's fixed 30s
+# integration timeout → 503). This debounce stops repeated UI polls on the same cold
+# range from each firing their own self-invoke while the first warmup is still running.
+ASYNC_WARMUP_DEBOUNCE_SECONDS = int(os.environ.get("ASYNC_WARMUP_DEBOUNCE_SECONDS", "120"))
 
 _BOTO_CFG = Config(retries={"max_attempts": 3, "mode": "standard"})
 
@@ -75,6 +80,8 @@ _usage_cache = {}
 _s3_cache_client = None
 _jobs_table = None
 _lambda_client = None
+# range label -> wall-clock time we last self-invoked a warmup for it (debounce state).
+_async_warmup_last = {}
 
 
 def _ensure_pricing():
@@ -125,6 +132,42 @@ def _get_lambda_client():
     if _lambda_client is None:
         _lambda_client = boto3.client("lambda", region_name=CONTROL_REGION, config=_BOTO_CFG)
     return _lambda_client
+
+
+def _self_function_name() -> str:
+    """This Lambda's own name, auto-injected by the runtime. Empty when run locally,
+    which is how the async-warmup helpers know to no-op outside Lambda."""
+    return os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "")
+
+
+def _trigger_async_warmup(range_label: str, now: float) -> None:
+    """Fire-and-forget a single-range warmup by self-invoking this function async.
+
+    Used by the API path on a fully cold cache so it can return immediately instead
+    of building inline. Debounced per range so a burst of UI polls triggers at most
+    one warmup per ASYNC_WARMUP_DEBOUNCE_SECONDS window. No-ops locally (no function
+    name) — there the caller falls through to a synchronous build.
+    """
+    function_name = _self_function_name()
+    if not function_name:
+        return
+
+    last = _async_warmup_last.get(range_label, 0.0)
+    if now - last < ASYNC_WARMUP_DEBOUNCE_SECONDS:
+        return
+    _async_warmup_last[range_label] = now
+
+    try:
+        _get_lambda_client().invoke(
+            FunctionName=function_name,
+            InvocationType="Event",  # async — returns without waiting for the build
+            Payload=json.dumps({"warmup": True, "ranges": [range_label]}).encode("utf-8"),
+        )
+        _log_json("usage_warmup_trigger", range=range_label, function=function_name)
+    except Exception as exc:  # noqa: BLE001
+        # Best-effort: on failure the next poll retries once the debounce elapses.
+        _async_warmup_last.pop(range_label, None)
+        _log_json("usage_warmup_trigger", range=range_label, error=str(exc))
 
 
 def _prune_usage_cache(now: float) -> None:
@@ -292,6 +335,16 @@ def get_usage_payload(params: dict, *, prefer_stale: bool = False, force_refresh
             stale_payload = _read_stale_usage_cache(key, now)
             if stale_payload is not None:
                 return _with_stale_warning(stale_payload, "is running in the background")
+            # Fully cold cache on the API path: never build inline. The HTTP API's
+            # integration timeout is a fixed 30s, so a heavy range would 503. Inside
+            # Lambda, kick off an async warmup and return an empty "building" payload;
+            # the UI re-polls and picks up real numbers once the warmup lands. Locally
+            # there is no self-invoke, so fall through to a synchronous build below.
+            if _self_function_name():
+                label = _resolve_range(params)[3]
+                _trigger_async_warmup(label, now)
+                _log_json("usage_cache", hit=False, source="cold_async_warmup", range=label)
+                return _empty_payload(params)
 
     try:
         payload = build_payload(params)
@@ -678,6 +731,41 @@ def _empty_region(r):
     }
 
 
+def _empty_payload(params: dict) -> dict:
+    """A zeroed /usage payload shaped exactly like build_payload's output.
+
+    Returned on the API path when the cache is fully cold, so the request finishes
+    instantly instead of blocking on a rebuild (which would trip the HTTP API's 30s
+    limit). `refreshing: True` and the warning tell the UI to show a "building" state
+    and keep polling until the async warmup fills the cache.
+    """
+    regions = params.get("_regions") or REGIONS
+    start, end, period, label = _resolve_range(params)
+    totals = {
+        k: 0
+        for k in (
+            "input_tokens", "output_tokens", "cache_write_tokens",
+            "cache_read_tokens", "total_tokens", "invocations",
+        )
+    }
+    totals["estimated_cost"] = 0.0
+    totals["billed_cost"] = 0.0
+    return {
+        "range": {"start": start.isoformat(), "end": end.isoformat(), "period_seconds": period, "label": label},
+        "regions": regions,
+        "totals": totals,
+        "by_region": [_empty_region(r) for r in regions],
+        "by_model": [],
+        "by_user": [],
+        "series": [],
+        "warnings": ["Usage data is being prepared in the background; it will appear on the next refresh."],
+        "pricing_region": PRICING_REGION,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "refreshing": True,
+        "stale": True,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # HTTP handler
 # --------------------------------------------------------------------------- #
@@ -844,7 +932,52 @@ def _validate_chat(body):
 
 
 def _warm_usage_cache(event: dict, context) -> dict:
-    ranges = event.get("ranges") if isinstance(event.get("ranges"), list) else USAGE_WARMUP_RANGES
+    """EventBridge/self-invoke entrypoint for the warmup, split into two modes:
+
+    - **Dispatcher** — the scheduled `{"warmup": true}` tick (no `ranges`). It fans
+      the work out by self-invoking one worker per range, so each range builds in its
+      own invocation with the full timeout budget. This is what stops heavy ranges
+      from starving each other in a single sequential pass.
+    - **Worker** — an invocation that carries an explicit `ranges` list
+      (`{"warmup": true, "ranges": ["30d"]}`). It builds just those ranges.
+
+    In the single-region sandbox all ranges finish in well under the timeout, so the
+    fan-out is really about parity with the multi-region client; it is harmless here.
+    """
+    if isinstance(event.get("ranges"), list):
+        return _warm_worker(event["ranges"], context)
+    return _dispatch_warmup(context)
+
+
+def _dispatch_warmup(context) -> dict:
+    """Fan the scheduled warmup out to one self-invoked worker per range."""
+    ranges = [r for r in USAGE_WARMUP_RANGES if isinstance(r, str) and r in ASK_RANGES]
+    if not ranges:
+        ranges = ["today", "7d", "30d"]
+
+    function_name = _self_function_name()
+    if not function_name:
+        # No self-invoke available (local run) — build everything in-process instead.
+        return _warm_worker(ranges, context)
+
+    dispatched, errors = [], []
+    for rng in ranges:
+        try:
+            _get_lambda_client().invoke(
+                FunctionName=function_name,
+                InvocationType="Event",  # async: each worker runs in its own invocation
+                Payload=json.dumps({"warmup": True, "ranges": [rng]}).encode("utf-8"),
+            )
+            dispatched.append(rng)
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"range": rng, "error": str(exc)})
+
+    _log_json("usage_warmup_dispatch", dispatched=dispatched, errors=errors)
+    return {"ok": not errors, "dispatched": dispatched, "errors": errors}
+
+
+def _warm_worker(ranges: list, context) -> dict:
+    """Build (force-refresh) the given ranges, writing the shared cache for each."""
     ranges = [r for r in ranges if isinstance(r, str) and r in ASK_RANGES]
     if not ranges:
         ranges = ["today", "7d", "30d"]

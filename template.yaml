@@ -150,6 +150,15 @@ Resources:
               Action:
                 - lambda:InvokeFunction
               Resource: !GetAtt AskWorkerFunction.Arn
+            - Sid: WarmupSelfInvoke
+              # Lets the function invoke ITSELF async: the scheduled warmup dispatcher
+              # fans out one worker per range, and the API path fires a background
+              # warmup on a cold cache. Scoped by name pattern (not !GetAtt on this
+              # same function) to avoid a CloudFormation self-reference cycle.
+              Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-UsageFunction-*"
             - Sid: AskAgentInvoke
               Effect: Allow
               Action:
