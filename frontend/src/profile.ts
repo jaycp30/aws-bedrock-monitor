@@ -21,10 +21,7 @@ const FRIENDLY_ERRORS: Record<string, string> = {
   LimitExceededException: "Too many attempts — wait a few minutes and try again.",
 };
 
-export async function changePassword(
-  currentPassword: string,
-  newPassword: string,
-): Promise<void> {
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const accessToken = getAccessToken();
   if (!accessToken) {
     throw new PasswordChangeError("Your session has expired. Sign out, sign back in, and retry.");
@@ -46,7 +43,10 @@ export async function changePassword(
     let code = "";
     try {
       const body = await resp.json();
-      code = String(body.__type ?? "").split("#").pop() ?? "";
+      code =
+        String(body.__type ?? "")
+          .split("#")
+          .pop() ?? "";
     } catch {
       // non-JSON error body — fall through to the generic message
     }

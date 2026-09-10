@@ -45,8 +45,20 @@ export function UsageChart({
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--ink-faint)" vertical={false} />
-        <XAxis dataKey="t" tick={{ fontSize: 11, fill: "var(--ink-3)", fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={{ stroke: "var(--ink-line)" }} minTickGap={24} />
-        <YAxis tickFormatter={fmtTokens} tick={{ fontSize: 11, fill: "var(--ink-3)", fontFamily: "var(--font-mono)" }} tickLine={false} axisLine={false} width={48} />
+        <XAxis
+          dataKey="t"
+          tick={{ fontSize: 11, fill: "var(--ink-3)", fontFamily: "var(--font-mono)" }}
+          tickLine={false}
+          axisLine={{ stroke: "var(--ink-line)" }}
+          minTickGap={24}
+        />
+        <YAxis
+          tickFormatter={fmtTokens}
+          tick={{ fontSize: 11, fill: "var(--ink-3)", fontFamily: "var(--font-mono)" }}
+          tickLine={false}
+          axisLine={false}
+          width={48}
+        />
         <Tooltip
           formatter={(v: number) => fmtTokens(v) + " tokens"}
           contentStyle={{
@@ -58,8 +70,20 @@ export function UsageChart({
           }}
         />
         <Legend wrapperStyle={{ fontSize: 12, fontFamily: "var(--font-mono)" }} />
-        <Area type="monotone" dataKey="Input" stroke="var(--series-input)" fill="url(#gIn)" strokeWidth={2} />
-        <Area type="monotone" dataKey="Output" stroke="var(--series-output)" fill="url(#gOut)" strokeWidth={2} />
+        <Area
+          type="monotone"
+          dataKey="Input"
+          stroke="var(--series-input)"
+          fill="url(#gIn)"
+          strokeWidth={2}
+        />
+        <Area
+          type="monotone"
+          dataKey="Output"
+          stroke="var(--series-output)"
+          fill="url(#gOut)"
+          strokeWidth={2}
+        />
       </AreaChart>
     </ResponsiveContainer>
   );

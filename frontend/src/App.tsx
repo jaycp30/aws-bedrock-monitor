@@ -30,7 +30,9 @@ export default function App() {
       setAuthed(true);
       return;
     }
-    handleRedirect().then(setAuthed).catch(() => setAuthed(false));
+    handleRedirect()
+      .then(setAuthed)
+      .catch(() => setAuthed(false));
   }, []);
 
   useEffect(() => {
@@ -72,7 +74,9 @@ export default function App() {
           <div className="brand-mark" />
           <h1>Bedrock Usage Monitor</h1>
           <p>Sign in to view model usage and cost across regions.</p>
-          <button className="btn btn--primary" onClick={() => login()}>Sign in</button>
+          <button className="btn btn--primary" onClick={() => login()}>
+            Sign in
+          </button>
         </div>
       </div>
     );
@@ -103,7 +107,9 @@ export default function App() {
           </div>
           {!DEMO_MODE && <ProfileMenu />}
           {!DEMO_MODE && (
-            <button className="btn btn--ghost" onClick={() => logout()}>Sign out</button>
+            <button className="btn btn--ghost" onClick={() => logout()}>
+              Sign out
+            </button>
           )}
         </div>
       </header>
@@ -111,14 +117,33 @@ export default function App() {
       <main className="content">
         {error && <div className="banner banner--err">{error}</div>}
         {data?.warnings.map((w, i) => (
-          <div key={i} className="banner banner--warn">{w}</div>
+          <div key={i} className="banner banner--warn">
+            {w}
+          </div>
         ))}
 
         <section className="kpis">
-          <Kpi label="Estimated cost" value={fmtUsd(t?.estimated_cost ?? 0)} sub={`Billed ${fmtUsd(t?.billed_cost ?? 0)}`} accent />
-          <Kpi label="Total tokens" value={fmtTokens(t?.total_tokens ?? 0)} sub={`${fmtInt(t?.input_tokens ?? 0)} in · ${fmtInt(t?.output_tokens ?? 0)} out`} />
-          <Kpi label="Invocations" value={fmtInt(t?.invocations ?? 0)} sub={cacheTotal ? `${fmtTokens(cacheTotal)} cached tokens` : undefined} />
-          <Kpi label="Regions" value={String(data?.regions.length ?? 0)} sub={data?.regions.join(", ")} />
+          <Kpi
+            label="Estimated cost"
+            value={fmtUsd(t?.estimated_cost ?? 0)}
+            sub={`Billed ${fmtUsd(t?.billed_cost ?? 0)}`}
+            accent
+          />
+          <Kpi
+            label="Total tokens"
+            value={fmtTokens(t?.total_tokens ?? 0)}
+            sub={`${fmtInt(t?.input_tokens ?? 0)} in · ${fmtInt(t?.output_tokens ?? 0)} out`}
+          />
+          <Kpi
+            label="Invocations"
+            value={fmtInt(t?.invocations ?? 0)}
+            sub={cacheTotal ? `${fmtTokens(cacheTotal)} cached tokens` : undefined}
+          />
+          <Kpi
+            label="Regions"
+            value={String(data?.regions.length ?? 0)}
+            sub={data?.regions.join(", ")}
+          />
         </section>
 
         <section className="card">

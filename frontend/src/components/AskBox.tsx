@@ -120,14 +120,20 @@ export function AskBox({ range }: AskBoxProps) {
       )}
 
       {thread.length > 0 && !loading && (
-        <button className="ask__clear" onClick={() => { setThread([]); setError(null); }}>
+        <button
+          className="ask__clear"
+          onClick={() => {
+            setThread([]);
+            setError(null);
+          }}
+        >
           Clear conversation
         </button>
       )}
 
       <p className="ask__note">
-        Answers come from a Bedrock agent grounded in your real usage data. A Bedrock
-        Guardrail keeps it to usage &amp; cost topics. Each question incurs a small token cost.
+        Answers come from a Bedrock agent grounded in your real usage data. A Bedrock Guardrail
+        keeps it to usage &amp; cost topics. Each question incurs a small token cost.
       </p>
     </section>
   );
