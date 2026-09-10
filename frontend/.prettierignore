@@ -1,0 +1,3 @@
+# Prettier expands compact one-line CSS rules into three lines each, which
+# fights the deliberate compact style in styles.css. Formatting here is manual.
+*.css
